@@ -45,17 +45,20 @@ class FakeBackend:
                   "quick": "quick-panel-surface", "first-run": "first-run-panel"}[self.screen]
         return {"focused": self.focused, "search_query": self.query,
                 "scene": {"id": "quiet-console", "children": [{"id": marker, "children": []}]}}
-    def capture_and_measure(self, cell, route, root, spec):
+    def capture_and_measure(self, cell, route, root, spec, repeat_index):
         self.captures.append(cell.name)
-        cell_root = root / "cells" / cell.name; (cell_root / "measure").mkdir(parents=True, exist_ok=True)
+        cell_root = root / "cells" / cell.name / f"repeat-{repeat_index}"
+        (cell_root / "measure").mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (4, 3), "black").save(cell_root / "capture.png")
         (cell_root / "measure" / "overlay.png").write_bytes(b"overlay")
         (cell_root / "measure" / "report.md").write_text("ok\n")
         status = self.statuses.get(cell.route, "PASS")
         return {"status": status, "sha256": self.hashes.get(cell.route, "abc"), "settled": "idle",
                 "failures": [] if status == "PASS" else ["text_contrast"],
-                "capture": f"cells/{cell.name}/capture.png", "overlay": f"cells/{cell.name}/measure/overlay.png",
-                "report": f"cells/{cell.name}/measure/report.md"}
+                "repeat": repeat_index,
+                "capture": f"cells/{cell.name}/repeat-{repeat_index}/capture.png",
+                "overlay": f"cells/{cell.name}/repeat-{repeat_index}/measure/overlay.png",
+                "report": f"cells/{cell.name}/repeat-{repeat_index}/measure/report.md"}
 
 
 class MatrixTests(unittest.TestCase):
@@ -104,6 +107,30 @@ class MatrixTests(unittest.TestCase):
                                      out=self.root / "repeat", repeat=2, backend=FakeBackend())
         self.assertEqual(code, 0); self.assertTrue(report["deterministic"])
 
+    def test_repeat_artifacts_are_distinct_and_all_reported(self):
+        class DifferingRepeats(FakeBackend):
+            def capture_and_measure(self, cell, route, root, spec, repeat_index):
+                result = super().capture_and_measure(cell, route, root, spec, repeat_index)
+                result["sha256"] = f"hash-{repeat_index}"
+                return result
+        code, report, out = matrix.run(
+            self.spec,
+            only={"route": "home", "profile": "seeded-default", "scale": "100", "contrast": "default"},
+            out=self.root / "different", repeat=2, backend=DifferingRepeats(),
+        )
+        self.assertEqual(code, 1)
+        self.assertFalse(report["deterministic"])
+        repeats = report["cells"][0]["repeats"]
+        self.assertEqual([item["sha256"] for item in repeats], ["hash-1", "hash-2"])
+        self.assertEqual(len({item["capture"] for item in repeats}), 2)
+        self.assertTrue(all((out / item["capture"]).exists() for item in repeats))
+        markdown = (out / "report.md").read_text()
+        self.assertIn("r1: [capture]", markdown)
+        self.assertIn("r2: [capture]", markdown)
+        page = (out / "index.html").read_text()
+        self.assertEqual(page.count("<img "), 1)
+        self.assertIn("hash-1", page); self.assertIn("hash-2", page)
+
     def test_route_mismatch_fails_before_measure(self):
         class WrongScreen(FakeBackend):
             def observe(self):
@@ -123,7 +150,7 @@ class MatrixTests(unittest.TestCase):
 
     def test_cell_error_reports_stage_type_and_prints_failed_cell(self):
         class BrokenCapture(FakeBackend):
-            def capture_and_measure(self, cell, route, root, spec):
+            def capture_and_measure(self, cell, route, root, spec, repeat_index):
                 raise OSError("capture vanished")
         stdout = io.StringIO()
         with patch("sys.stdout", new=stdout):

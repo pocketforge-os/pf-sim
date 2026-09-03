@@ -152,7 +152,8 @@ class Backend(Protocol):
     def start(self, profile: str, scale: str, contrast: str) -> None: ...
     def execute(self, step: dict) -> object: ...
     def observe(self) -> dict: ...
-    def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix) -> dict: ...
+    def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix,
+                            repeat_index: int) -> dict: ...
 
 
 class LiveMatrixBackend:
@@ -209,19 +210,22 @@ class LiveMatrixBackend:
     def observe(self) -> dict:
         return self.live.observe()[0]
 
-    def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix) -> dict:
+    def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix,
+                            repeat_index: int) -> dict:
+        capture_name = validate_name("capture", f"{cell.name}-r{repeat_index}")
         try:
-            png, sidecar = capture.capture(cell.name, self.instance)
+            png, sidecar = capture.capture(capture_name, self.instance)
         except Exception as error:
             raise CellStageError("capture", error) from error
         cell_root = safe_child(root / "cells", "cell", cell.name)
-        cell_root.mkdir(parents=True, exist_ok=True)
-        target = cell_root / "capture.png"
+        repeat_root = safe_child(cell_root, "repeat", f"repeat-{repeat_index}")
+        repeat_root.mkdir(parents=True, exist_ok=True)
+        target = repeat_root / "capture.png"
         shutil.copy2(png, target)
-        shutil.copy2(png.with_suffix(".scene.json"), cell_root / "capture.scene.json")
-        shutil.copy2(png.with_suffix(".json"), cell_root / "capture.json")
+        shutil.copy2(png.with_suffix(".scene.json"), repeat_root / "capture.scene.json")
+        shutil.copy2(png.with_suffix(".json"), repeat_root / "capture.json")
         try:
-            measured = measure.run(target, cell_root / "capture.scene.json", cell_root / "measure",
+            measured = measure.run(target, repeat_root / "capture.scene.json", repeat_root / "measure",
                                    node_ids=route.nodes, role=route.role, min_gap=spec.min_gap,
                                    contrast_floor=spec.contrast_floor)
         except Exception as error:
@@ -229,9 +233,10 @@ class LiveMatrixBackend:
         failures = [name for name, check in measured["checks"].items() if check["status"] == "FAIL"]
         return {"status": measured["status"], "sha256": sidecar["sha256"],
                 "settled": sidecar.get("settled"), "failures": failures,
-                "capture": f"cells/{cell.name}/capture.png",
-                "overlay": f"cells/{cell.name}/measure/overlay.png",
-                "report": f"cells/{cell.name}/measure/report.md"}
+                "repeat": repeat_index,
+                "capture": f"cells/{cell.name}/repeat-{repeat_index}/capture.png",
+                "overlay": f"cells/{cell.name}/repeat-{repeat_index}/measure/overlay.png",
+                "report": f"cells/{cell.name}/repeat-{repeat_index}/measure/report.md"}
 
 
 class CellStageError(RuntimeError):
@@ -273,7 +278,7 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
             if cell.skip: records.append(_skip_record(cell))
         for cell in runnable:
             route = spec.definitions[cell.route]
-            hashes = []
+            repeats = []
             record = {"name": cell.name, "route": cell.route, "scale": cell.scale,
                       "contrast": cell.contrast, "profile": cell.profile, "status": "error"}
             stage = "start"
@@ -295,11 +300,19 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
                         f"reason=route_mismatch expected={expected} "
                         f"observed={screen}/{observed.get('focused', '')}"
                     )
-                last = None
                 stage = "capture"
-                for _ in range(repeat):
-                    last = current.capture_and_measure(cell, route, root, spec); hashes.append(last["sha256"])
-                record.update(last or {}, deterministic=len(set(hashes)) == 1)
+                for repeat_index in range(1, repeat + 1):
+                    repeats.append(current.capture_and_measure(
+                        cell, route, root, spec, repeat_index
+                    ))
+                primary = repeats[0]
+                statuses = [item["status"] for item in repeats]
+                failures = list(dict.fromkeys(
+                    failure for item in repeats for failure in item.get("failures", [])
+                ))
+                record.update(primary, repeats=repeats, failures=failures,
+                              status="FAIL" if "FAIL" in statuses else primary["status"],
+                              deterministic=len({item["sha256"] for item in repeats}) == 1)
             except Exception as error:
                 reason = _error_reason(stage, error)
                 record.update(reason=reason, failures=[reason], deterministic=False)
@@ -393,7 +406,12 @@ def render_markdown(report: dict) -> str:
         for item in (entry for entry in report["cells"] if entry["profile"] == profile):
             evidence = ""
             if item.get("capture"):
-                evidence = f"[capture]({item['capture']}) [overlay]({item['overlay']}) [report]({item['report']})"
+                evidence = " ".join(
+                    f"r{repeat['repeat']}: [capture]({repeat['capture']}) "
+                    f"[overlay]({repeat['overlay']}) [report]({repeat['report']}) "
+                    f"`{repeat['sha256']}`"
+                    for repeat in item.get("repeats", [item])
+                )
             failures = ", ".join(item.get("failures", [])) or item.get("reason", "") or ""
             lines.append(f"| {item['route']} | {item['scale']}/{item['contrast']} | {item['status']} | {item.get('settled', '') or ''} | {item.get('sha256', '')} | {failures} | {evidence} |")
         lines.append("")
@@ -407,7 +425,16 @@ def render_html(report: dict) -> str:
         if item.get("capture"):
             path = html.escape(item["capture"], quote=True)
             overlay = html.escape(item["overlay"], quote=True)
-            body = f'<a href="{overlay}"><img loading="lazy" src="{path}" alt="{title}"></a>'
+            links = " ".join(
+                f'r{repeat["repeat"]} '
+                f'<a href="{html.escape(repeat["capture"], quote=True)}">capture</a> '
+                f'<a href="{html.escape(repeat["overlay"], quote=True)}">overlay</a> '
+                f'<a href="{html.escape(repeat["report"], quote=True)}">report</a> '
+                f'{html.escape(repeat["sha256"])}'
+                for repeat in item.get("repeats", [item])
+            )
+            body = (f'<a href="{overlay}"><img loading="lazy" src="{path}" alt="{title}"></a>'
+                    f'<p>{links}</p>')
         else: body = f'<div class="skip">{html.escape(item.get("reason", "skipped"))}</div>'
         cards.append(f'<article><h2>{title}</h2>{body}<p>{html.escape(item["status"])}</p></article>')
     return "<!doctype html><html><head><meta charset=\"utf-8\"><title>Matrix report</title><style>body{font:14px sans-serif;background:#16181d;color:#eee}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}article{background:#252932;padding:10px}h2{font-size:14px}img{width:100%;height:auto}.skip{height:140px;display:grid;place-items:center}</style></head><body><h1>" + html.escape(report["matrix"]) + "</h1><main>" + "".join(cards) + "</main></body></html>\n"
