@@ -1,0 +1,30 @@
+name = "home200-footer-overlap"
+instance = "audit-home200"
+profile = "seeded-default"
+scale = 200
+nodes = ["home-card-art-ridgeline", "home-card-title-ridgeline", "home-card-art-hollow-tides", "home-card-title-hollow-tides", "home-card-art-sunwake", "home-card-title-sunwake", "home-card-art-moth-and-lantern", "home-card-title-moth-and-lantern", "home-card-art-steam-link", "home-card-title-steam-link", "home-card-badge-steam-link", "home-card-art-tidelines", "home-card-title-tidelines", "prompts", "home-prompt-keycap-0", "home-prompt-verb-0", "home-prompt-keycap-1", "home-prompt-verb-1", "home-prompt-keycap-2", "home-prompt-verb-2", "home-prompt-keycap-3", "home-prompt-verb-3"]
+min_gap = 0
+
+[[phase]]
+name = "pre-fix"
+launcher_rev = "76ecd10"
+[[phase.expect]]
+kind = "gap"
+a = "home-card-title-steam-link"
+b = "prompts"
+source = "declared"
+axis = "vertical"
+operator = "lt"
+value = 0
+
+[[phase]]
+name = "post-fix"
+launcher_rev = "b876f059d2857ca4634537b86faf6ede834526a2"
+[[phase.expect]]
+kind = "gap"
+a = "home-card-title-steam-link"
+b = "prompts"
+source = "declared"
+axis = "vertical"
+operator = "ge"
+value = 0

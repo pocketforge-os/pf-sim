@@ -1,0 +1,32 @@
+diff --git a/crates/pf-shell/src/automation.rs b/crates/pf-shell/src/automation.rs
+--- a/crates/pf-shell/src/automation.rs
++++ b/crates/pf-shell/src/automation.rs
+@@ -23,6 +23,7 @@ pub enum Command {
+     Ping,
+     Scene,
+     Capture { path: PathBuf },
+     Text { value: String },
++    Action { value: String },
+     WaitIdle { quiet: Duration, timeout: Duration },
+ }
+@@ -286,4 +287,7 @@ pub fn parse(line: &[u8]) -> Result<Command, String> {
+         "text" => Ok(Command::Text {
+             value: string("value")?,
+         }),
++        "action" => Ok(Command::Action {
++            value: string("value")?,
++        }),
+         "wait_idle" => Ok(Command::WaitIdle {
+diff --git a/crates/pf-shell/src/main.rs b/crates/pf-shell/src/main.rs
+--- a/crates/pf-shell/src/main.rs
++++ b/crates/pf-shell/src/main.rs
+@@ -1630,4 +1630,9 @@ fn drive_automation(
+                 server.note_action();
+                 serde_json::json!({"ok":true})
+             }
++            automation::Command::Action { value } => {
++                core.action(&ShellAction::Custom(value.clone()));
++                server.note_action();
++                serde_json::json!({"ok":true})
++            }
+             automation::Command::WaitIdle { .. } => continue,

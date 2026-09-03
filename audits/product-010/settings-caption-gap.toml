@@ -1,0 +1,19 @@
+name = "settings-caption-gap"
+instance = "audit-settings-gap"
+profile = "seeded-default"
+scale = 200
+contrast = "default"
+action = ["Room.previous"]
+nodes = ["settings-row-accessibility-highContrast-line-1", "settings-toggle-accessibility-highContrast-state"]
+min_gap = 8
+
+[[phase]]
+name = "pre-fix"
+launcher_rev = "b876f059d2857ca4634537b86faf6ede834526a2"
+[[phase.expect]]
+kind = "gap"
+a = "settings-row-accessibility-highContrast-line-1"
+b = "settings-toggle-accessibility-highContrast-state"
+axis = "horizontal"
+operator = "eq"
+value = 7

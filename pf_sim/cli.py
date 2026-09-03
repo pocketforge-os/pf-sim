@@ -8,7 +8,9 @@ from pathlib import Path
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
-from . import capture, doctor, gamepad, inputs, keys, profiles, scenario, toolchain
+from . import audit, capture, doctor, gamepad, inputs, keys, profiles, scenario, toolchain
+from . import measure
+from .config import repo_root, safe_child, sim_home
 from .automation import AutomationClient
 from .authority import AuthorityClient
 from .fixture_app import fixture_config, send_command
@@ -39,6 +41,8 @@ def parser() -> argparse.ArgumentParser:
         if name == "status": command.add_argument("--json", action="store_true")
     tools = commands.add_parser("toolchain").add_subparsers(dest="toolchain_command", required=True)
     build = tools.add_parser("build"); build.add_argument("--force", action="store_true")
+    build.add_argument("--launcher-rev")
+    build.add_argument("--automation-adapter", action="store_true", help=argparse.SUPPRESS)
     build.add_argument("--backend", choices=["desktop"], default="desktop")
     status = tools.add_parser("status"); status.add_argument("--json", action="store_true")
     status.add_argument("--backend", choices=["desktop"], default="desktop")
@@ -53,6 +57,15 @@ def parser() -> argparse.ArgumentParser:
     cap.add_argument("name"); cap.add_argument("--instance", default="default"); cap.add_argument("--settle", type=float, default=.5)
     cap.add_argument("--raw", action="store_true"); cap.add_argument("--quiet-ms", type=int, default=150)
     cap.add_argument("--timeout-ms", type=int, default=5000); cap.add_argument("--repeat", type=int, default=1)
+    measuring = commands.add_parser("measure", help="measure a capture, or diff two captures")
+    measuring.add_argument("target"); measuring.add_argument("other", nargs="?"); measuring.add_argument("second", nargs="?")
+    measuring.add_argument("--scene", type=Path); measuring.add_argument("--other-scene", type=Path)
+    measuring.add_argument("--nodes"); measuring.add_argument("--role")
+    measuring.add_argument("--min-gap", type=int, default=0); measuring.add_argument("--contrast-floor", type=float, default=4.5)
+    measuring.add_argument("--out", type=Path); measuring.add_argument("--instance", default="default")
+    measuring.add_argument("--no-fail", action="store_true")
+    audits = commands.add_parser("audit").add_subparsers(dest="audit_command", required=True)
+    audit_run = audits.add_parser("run"); audit_run.add_argument("path", type=Path)
     text_command = commands.add_parser("text")
     text_command.add_argument("value", nargs="?", default=""); text_command.add_argument("--clear", action="store_true")
     text_command.add_argument("--instance", default="default")
@@ -121,6 +134,17 @@ def main(argv=None) -> int:
             validate_name("profile", args.profile)
         elif args.command == "launch":
             validate_name("item", args.item_id)
+        elif args.command == "measure":
+            if args.target != "diff" and not args.target.lower().endswith(".png"):
+                validate_name("capture", args.target)
+            if args.target == "diff":
+                if args.other is None or args.second is None: raise ValueError("reason=diff_requires_two_captures")
+                for value in (args.other, args.second):
+                    if not value.lower().endswith(".png"): validate_name("capture", value)
+        elif args.command == "audit":
+            validate_name("audit", args.path.stem)
+            if not args.path.resolve().is_relative_to((repo_root() / "audits").resolve()):
+                raise ValueError("reason=invalid_audit")
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -138,6 +162,33 @@ def main(argv=None) -> int:
             print(f"scenario_status={report['status']} deterministic={str(report['deterministic']).lower()} runs={args.repeat}")
             return code
         if args.command == "doctor": return doctor.run()
+        if args.command == "measure":
+            capture_root = safe_child(sim_home() / "captures", "instance", args.instance)
+            def resolve(value: str) -> Path:
+                candidate = Path(value)
+                if candidate.suffix.lower() == ".png": return candidate.resolve()
+                name = validate_name("capture", value)
+                return capture_root / f"{name}.png"
+            if args.target == "diff":
+                a, b = resolve(args.other), resolve(args.second)
+                out = args.out.resolve() if args.out else capture_root / f"{a.stem}-{b.stem}.diff"
+                value = measure.run_diff(a, b, args.scene or a.with_suffix(".scene.json"),
+                                         args.other_scene or b.with_suffix(".scene.json"), out)
+                print(f"diff_status=ok moved_nodes={','.join(value['moved_nodes'])} out={out}"); return 0
+            png = resolve(args.target); scene_path = args.scene.resolve() if args.scene else png.with_suffix(".scene.json")
+            node_ids = None
+            if args.nodes:
+                node_ids = {validate_name("node", item) for item in args.nodes.split(",") if item}
+            out = args.out.resolve() if args.out else png.parent / f"{png.stem}.measure"
+            value = measure.run(png, scene_path, out, node_ids=node_ids, role=args.role,
+                                min_gap=args.min_gap, contrast_floor=args.contrast_floor)
+            print(f"measure_status={value['status'].lower()} out={out}")
+            return 1 if value["status"] == "FAIL" and not args.no_fail else 0
+        if args.command == "audit":
+            reproduced, values = audit.run(args.path.resolve())
+            print(json.dumps(values, sort_keys=True))
+            print(f"audit_status={'reproduced' if reproduced else 'not_reproduced'}")
+            return 0 if reproduced else 1
         if args.command == "app-hook":
             request = {"command": args.hook_command}
             if args.hook_command == "launch":
@@ -176,7 +227,7 @@ def main(argv=None) -> int:
             print(f"app_status={args.app_command} session={session}"); return 0
         if args.command == "toolchain":
             if args.toolchain_command == "build":
-                print(json.dumps(toolchain.build(args.force), sort_keys=True)); return 0
+                print(json.dumps(toolchain.build(args.force, args.launcher_rev, args.automation_adapter), sort_keys=True)); return 0
             manifest = toolchain.read_manifest()
             if manifest is None:
                 print("toolchain_status=absent", file=sys.stderr); return 3

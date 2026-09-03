@@ -1,0 +1,18 @@
+name = "pill-ink"
+instance = "audit-pill-ink"
+profile = "seeded-default"
+nodes = ["attention-pill", "attention"]
+
+[[phase]]
+name = "pre-fix"
+launcher_rev = "8a8ee1f"
+[[phase.expect]]
+kind = "negative_inset"
+node = "attention"
+
+[[phase]]
+name = "post-fix"
+launcher_rev = "91f88d5"
+[[phase.expect]]
+kind = "all_insets_nonnegative"
+node = "attention"
