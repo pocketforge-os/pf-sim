@@ -1,0 +1,19 @@
+[scenario]
+name = "search-filter"
+description = "Filter the seeded catalog and capture the result."
+profile = "seeded-default"
+scale = "100"
+contrast = "default"
+
+[[steps]]
+op = "input"
+seq = "Search.open"
+[[steps]]
+op = "text"
+value = "e"
+[[steps]]
+op = "assert"
+predicate = "result_count < 25"
+[[steps]]
+op = "capture"
+name = "search-e"

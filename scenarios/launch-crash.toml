@@ -1,0 +1,22 @@
+[scenario]
+name = "launch-crash"
+description = "Launch Ridgeline and record its crash receipt."
+profile = "seeded-default"
+scale = "100"
+contrast = "default"
+
+[[steps]]
+op = "launch"
+item = "ridgeline"
+[[steps]]
+op = "wait_for"
+predicate = "app_state == running"
+[[steps]]
+op = "app"
+verb = "crash"
+[[steps]]
+op = "wait_for"
+predicate = "last_receipt == Crash"
+[[steps]]
+op = "capture"
+name = "crash-receipt"

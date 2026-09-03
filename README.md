@@ -104,6 +104,25 @@ Text entry uses the automation seam because the simulated device has no on-devic
 - `profiles/` contains committed state-only simulator profiles.
 - `tests/` contains hermetic `unittest` coverage and fake lifecycle components.
 - `$PF_SIM_HOME/` holds generated binaries, run state, snapshots, and captures.
+
+## Scenarios
+
+TOML scenarios turn GUI flows into reviewable evidence. List and validate committed
+scenarios, or run one repeatedly to compare every step's frame:
+
+```sh
+./pf-simctl scenario list
+./pf-simctl scenario validate scenarios/search-filter.toml
+./pf-simctl scenario run scenarios/launch-safe-return.toml --repeat 2
+```
+
+Each file has a `[scenario]` table (`name`, `description`, `profile`, `scale`, and
+`contrast`) followed by `[[steps]]`. Supported operations are `profile`, `input`,
+`text`, `launch`, `safe_return`, `app`, `wait_for`, `capture`, `assert`, and `sleep`.
+Generated evidence lives under `$PF_SIM_HOME/scenarios/SCENARIO/`: each run has one
+directory per step containing its PNG, `scene.json`, and `step.json`, with aggregate
+`report.json` and `report.md` files at the scenario root. `sleep` is supported for
+diagnostics but is called out as a report smell; prefer `wait_for` predicates.
 ## Fixture apps and sessions
 
 Every shipped profile uses pf-sim's session supervisor by default. Launch a deterministic

@@ -1,0 +1,58 @@
+[scenario]
+name = "settings-matrix"
+description = "Capture Settings at every supported scale and contrast preset."
+profile = "seeded-default"
+scale = "100"
+contrast = "default"
+
+[[steps]]
+op = "input"
+seq = "Settings.open"
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "100"
+contrast = "default"
+[[steps]]
+op = "capture"
+name = "settings-100-default"
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "100"
+contrast = "hc"
+[[steps]]
+op = "capture"
+name = "settings-100-hc"
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "150"
+contrast = "default"
+[[steps]]
+op = "capture"
+name = "settings-150-default"
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "150"
+contrast = "hc"
+[[steps]]
+op = "capture"
+name = "settings-150-hc"
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "200"
+contrast = "default"
+[[steps]]
+op = "capture"
+name = "settings-200-default"
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "200"
+contrast = "hc"
+[[steps]]
+op = "capture"
+name = "settings-200-hc"
