@@ -110,7 +110,8 @@ class LifecycleTests(unittest.TestCase):
 
             results = []
             with patch.object(gamepad.subprocess, "Popen", side_effect=fake_popen), \
-                 patch.object(gamepad, "status", side_effect=fake_status):
+                 patch.object(gamepad, "status", side_effect=fake_status), \
+                 patch.object(gamepad, "wait_event_node_readable", return_value=True):
                 threads = [threading.Thread(target=lambda: results.append(gamepad.create("race")))
                            for _ in range(2)]
                 for thread in threads:
@@ -141,6 +142,7 @@ class LifecycleTests(unittest.TestCase):
             try:
                 with patch.object(gamepad, "status", side_effect=states), \
                      patch.object(gamepad, "request", side_effect=FileNotFoundError), \
+                     patch.object(gamepad, "wait_event_node_readable", return_value=True), \
                      patch.object(gamepad.subprocess, "Popen", side_effect=fake_popen):
                     result = gamepad.create("degraded")
                 self.assertEqual(result["pid"], replacement.pid)

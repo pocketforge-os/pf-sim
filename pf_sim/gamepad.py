@@ -245,8 +245,9 @@ def create(instance: str) -> dict:
                     state_path.unlink(missing_ok=True)
                     raise RuntimeError(
                         "reason=event_node_unreadable "
-                        "hint=add your user to the 'input' group or install the udev rule "
-                        "in docs/gui-dev-loop.md"
+                        "hint=add your user to the 'input' group, or install the udev rule "
+                        "from docs/gui-dev-loop.md, or run from a logind seat session "
+                        "(uaccess ACL)"
                     )
                 return result
             time.sleep(0.03)

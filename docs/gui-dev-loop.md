@@ -18,8 +18,10 @@ The complete GUI workflow will land in P5. For now, the desktop simulator lifecy
 
 Use `--display windowed` from a desktop session when interactive viewing is needed.
 
-The simulator user must be able to read the udev-created `/dev/input/event*` node. On a
-developer machine, add the user to the `input` group and start a new login session:
+The simulator user must be able to read the udev-created `/dev/input/event*` node. A
+desktop login normally grants this through systemd-logind's `uaccess` ACL. When running
+outside a logind seat session, add the user to the `input` group and start a new login
+session:
 
 ```sh
 sudo usermod -aG input "$USER"
@@ -34,8 +36,11 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=input
 ```
 
-`pf-simctl doctor` reports `event_node_access=ok|unreadable`; `gamepad create` also
-fails with a direct remediation hint if the actual node is unreadable.
+Thus the supported access routes are a logind seat `uaccess` ACL, `input` group
+membership, or the narrowly matched udev rule. `pf-simctl doctor` creates a temporary
+gamepad and reports `event_node_access=ok|unreadable` from its actual event node (or
+`unknown` when `/dev/uinput` is not writable); `gamepad create` also fails with a direct
+remediation hint if the actual node is unreadable.
 
 Input travels through the virtual evdev gamepad and the launcher's real `pf-input-map`; each input
 verb waits until the resulting shell frame is presented. Search text uses the automation-only
