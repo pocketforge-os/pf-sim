@@ -1,0 +1,17 @@
+[profile]
+name = "controller-battery-low"
+description = "Normal shell with deterministic system and low controller batteries"
+[stack]
+authority = true
+supervisor = "pf-sim"
+[shell]
+extra_args = []
+[prefs]
+text_scale = "100%"
+high_contrast = false
+first_run_complete = true
+[power]
+batteries = [
+  {name="BAT0", capacity=82, status="Discharging", scope="System"},
+  {name="controller", capacity=15, status="Discharging", scope="Device"},
+]

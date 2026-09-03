@@ -9,7 +9,7 @@ from pathlib import Path
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
 from . import capture, doctor, gamepad, inputs, keys, profiles, toolchain
-from . import capture, doctor, keys, profiles, toolchain
+from .automation import AutomationClient
 from .authority import AuthorityClient
 from .fixture_app import fixture_config, send_command
 from .supervisor import hook
@@ -35,6 +35,7 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--profile", default="seeded-default")
             command.add_argument("--scale", choices=profiles.SCALES)
             command.add_argument("--contrast", choices=("default", "hc"))
+            command.add_argument("--no-gamepad", action="store_true")
         if name == "status": command.add_argument("--json", action="store_true")
     tools = commands.add_parser("toolchain").add_subparsers(dest="toolchain_command", required=True)
     build = tools.add_parser("build"); build.add_argument("--force", action="store_true")
@@ -48,8 +49,13 @@ def parser() -> argparse.ArgumentParser:
     apply = profile.add_parser("apply"); apply.add_argument("name"); apply.add_argument("--instance", default="default")
     apply.add_argument("--scale", choices=profiles.SCALES); apply.add_argument("--contrast", choices=("default", "hc"))
     snapshot = profile.add_parser("snapshot"); snapshot.add_argument("name"); snapshot.add_argument("--instance", default="default")
-    cap = commands.add_parser("capture", help="raw, non-frame-synchronized P1 capture")
+    cap = commands.add_parser("capture", help="frame-complete shell capture")
     cap.add_argument("name"); cap.add_argument("--instance", default="default"); cap.add_argument("--settle", type=float, default=.5)
+    cap.add_argument("--raw", action="store_true"); cap.add_argument("--quiet-ms", type=int, default=150)
+    cap.add_argument("--timeout-ms", type=int, default=5000); cap.add_argument("--repeat", type=int, default=1)
+    text_command = commands.add_parser("text")
+    text_command.add_argument("value", nargs="?", default=""); text_command.add_argument("--clear", action="store_true")
+    text_command.add_argument("--instance", default="default")
     key = commands.add_parser("key", help="raw windowed keyboard fallback")
     key.add_argument("keysyms", nargs="+"); key.add_argument("--instance", default="default"); key.add_argument("--delay", type=float, default=.35)
     pads = commands.add_parser("gamepad").add_subparsers(dest="gamepad_command", required=True)
@@ -73,6 +79,8 @@ def parser() -> argparse.ArgumentParser:
     sequence.add_argument("tokens"); sequence.add_argument("--context", choices=["shell", "library", "global"], default="shell")
     sequence.add_argument("--instance", default="default")
     sequence.add_argument("--hold-ms", type=int, default=60); sequence.add_argument("--gap-ms", type=int, default=120)
+    for command in (press, hold, action, sequence):
+        command.add_argument("--no-wait", action="store_true")
     listing = input_commands.add_parser("list"); listing.add_argument("--instance", default="default")
     for name in ("launch", "safe-return", "history"):
         command = commands.add_parser(name); command.add_argument("--instance", default="default")
@@ -171,8 +179,17 @@ def main(argv=None) -> int:
             contrast = "hc" if (effective or {}).get("highContrast", p.high_contrast) else "default"
             print(f"apply_status=applied profile={p.name} scale={scale} contrast={contrast}"); return 0
         if args.command == "capture":
-            path, sidecar = capture.capture(args.name, args.instance, args.settle)
-            print(f"capture_status=ok path={path} sha256={sidecar['sha256']}"); return 0
+            if args.repeat < 1: raise ValueError("reason=invalid_repeat")
+            results = [capture.capture(args.name, args.instance, args.settle, raw=args.raw,
+                       quiet_ms=args.quiet_ms, timeout_ms=args.timeout_ms) for _ in range(args.repeat)]
+            path, sidecar = results[-1]
+            deterministic = len({(item[1]["sha256"], item[1].get("scene_body_sha256")) for item in results}) == 1
+            suffix = f" deterministic={str(deterministic).lower()}" if args.repeat > 1 else ""
+            settled = f" settled={sidecar['settled']}" if "settled" in sidecar else ""
+            print(f"capture_status=ok path={path} sha256={sidecar['sha256']} frames={sidecar.get('frames', 'raw')} revision={sidecar.get('revision', 'raw')}{settled}{suffix}"); return 0
+        if args.command == "text":
+            result = AutomationClient(run_dir(args.instance) / "automation.sock").text("" if args.clear else args.value)
+            print(f"text_status=ok frames={result['frames']} revision={result['revision']}"); return 0
         if args.command == "key":
             try: keys.send(args.keysyms, args.instance, args.delay)
             except RuntimeError as error:
@@ -207,20 +224,26 @@ def main(argv=None) -> int:
                 print("POSITION\tLABEL\tCODE\tBOUND ACTIONS")
                 for row in inputs.list_rows(): print("\t".join(row))
                 return 0
+            if not args.no_wait:
+                AutomationClient(run_dir(args.instance) / "automation.sock").wait_idle()
             print("input_status=ok")
             return 0
         impl = backend(args.backend)
         if args.command == "up":
             selected = profiles.resolve_profile(args.profile)
             path = impl.up(instance=args.instance, display=args.display, replace=args.replace, shell_bin=args.shell_bin, authorityd_bin=args.authorityd_bin,
-                           profile=selected, scale=args.scale, contrast=args.contrast)
-            print(f"up_status=ready instance={args.instance} display={args.display} run_dir={path} weston_socket=pf-sim-{args.instance}")
+                           profile=selected, scale=args.scale, contrast=args.contrast, no_gamepad=args.no_gamepad)
+            source = "wayland-keyboard" if args.no_gamepad else "evdev"
+            automation = "down" if args.no_gamepad else "ready"
+            print(f"up_status=ready instance={args.instance} display={args.display} run_dir={path} weston_socket=pf-sim-{args.instance} input_source={source} automation={automation}")
             return 0
         if args.command == "down":
             stopped = impl.down(args.instance)
             print(f"down_status={'stopped' if stopped else 'not_running'} instance={args.instance}"); return 0
         result = impl.status(args.instance)
-        print(json.dumps(result, indent=2, sort_keys=True) if args.json else " ".join([f"status={result['state']}", f"instance={args.instance}"] + [f"{n}={'alive' if v['alive'] else 'dead'}" for n, v in result['components'].items()]))
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else " ".join(
+            [f"status={result['state']}", f"instance={args.instance}", f"automation={result.get('automation', 'down')}"]
+            + [f"{n}={'alive' if v['alive'] else 'dead'}" for n, v in result['components'].items()]))
         return {"up": 0, "down": 3, "degraded": 4}[result["state"]]
     except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as error:
         reason = str(error)

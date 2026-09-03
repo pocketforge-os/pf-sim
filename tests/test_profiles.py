@@ -1,10 +1,12 @@
 import json
+import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from pf_sim.profiles import effective_prefs, load_profile, restart_plan, sanitize_tree, seed_profile, snapshot, validate_profile
+from pf_sim.profiles import effective_prefs, load_profile, render_power_supply, restart_plan, sanitize_tree, seed_profile, snapshot, validate_profile
 
 
 class ProfileTests(unittest.TestCase):
@@ -18,6 +20,39 @@ class ProfileTests(unittest.TestCase):
                     prefs = effective_prefs(self.profile, scale, contrast)
                     self.assertEqual(prefs["textScale"], scale + "%")
                     self.assertEqual(prefs["highContrast"], contrast == "hc")
+
+    def test_power_profile_renders_fake_sysfs_tree(self):
+        profile = load_profile(Path("profiles/controller-battery-low"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); seed_profile(root, profile)
+            self.assertEqual((root / "power_supply/BAT0/type").read_text(), "Battery\n")
+            self.assertEqual((root / "power_supply/controller/capacity").read_text(), "15\n")
+            self.assertEqual((root / "power_supply/controller/scope").read_text(), "Device\n")
+
+    def test_invalid_power_name_rejected_before_tree_mutation(self):
+        profile = load_profile(Path("profiles/seeded-default"))
+        profile = __import__("dataclasses").replace(profile, batteries=({"name":"../bad","capacity":1,"status":"Discharging","scope":"Device"},))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); sentinel = root / "power_supply/keep"; sentinel.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "invalid_power_profile field=name"):
+                seed_profile(root, profile)
+            self.assertTrue(sentinel.exists())
+
+    def test_missing_capacity_rejected_before_tree_mutation(self):
+        profile = __import__("dataclasses").replace(
+            self.profile, batteries=({"name": "BAT0", "status": "Discharging", "scope": "System"},))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); sentinel = root / "power_supply/keep"; sentinel.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "invalid_power_profile field=capacity battery=BAT0"):
+                render_power_supply(root, profile)
+            self.assertTrue(sentinel.exists())
+
+    def test_invalid_power_scope_rejected_by_profile_validation(self):
+        profile = __import__("dataclasses").replace(
+            self.profile, batteries=({"name": "controller", "capacity": 15,
+                                      "status": "Discharging", "scope": "Wireless"},))
+        with self.assertRaisesRegex(ValueError, "invalid_power_profile field=scope battery=controller"):
+            validate_profile(profile)
 
     def test_restart_plan(self):
         expected_restart = ("shell", "supervisor", "authorityd")
@@ -81,6 +116,59 @@ class ProfileTests(unittest.TestCase):
                 reapplied = root / "reapplied"
                 seed_profile(reapplied, profile)
                 self.assertEqual((reapplied / "shell/prefs.json").exists(), prefs is not None)
+
+    def test_snapshot_round_trips_power_profile(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            run = self._snapshot_run(root, profile="controller-battery-low", authority=True, prefs=None)
+            source = load_profile(Path("profiles/controller-battery-low"))
+            render_power_supply(run, source)
+            original = {
+                path.relative_to(run / "power_supply"): path.read_text()
+                for path in (run / "power_supply").rglob("*") if path.is_file()
+            }
+            saved = snapshot("power-round-trip", run)
+            reapplied = root / "reapplied"
+            render_power_supply(reapplied, saved)
+            restored = {
+                path.relative_to(reapplied / "power_supply"): path.read_text()
+                for path in (reapplied / "power_supply").rglob("*") if path.is_file()
+            }
+            self.assertEqual(restored, original)
+            self.assertIn("[power]", (saved.path / "profile.toml").read_text())
+
+    def test_snapshot_preserves_empty_power_tree(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            run = self._snapshot_run(root, profile="missing-source", authority=True, prefs=None)
+            (run / "power_supply").mkdir()
+            saved = snapshot("empty-power", run)
+            self.assertEqual(saved.batteries, ())
+            self.assertIn("batteries = [\n]", (saved.path / "profile.toml").read_text())
+            reapplied = root / "reapplied"
+            render_power_supply(reapplied, saved)
+            self.assertEqual(list((reapplied / "power_supply").iterdir()), [])
+
+    def test_snapshot_reads_power_tree_when_source_deleted_from_other_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            source_path = root / "profiles/ephemeral-power"
+            shutil.copytree(Path("profiles/controller-battery-low").resolve(), source_path)
+            source = load_profile(source_path)
+            run = self._snapshot_run(root, profile="ephemeral-power", authority=True, prefs=None)
+            render_power_supply(run, source)
+            shutil.rmtree(source_path)
+
+            previous_cwd = Path.cwd()
+            elsewhere = root / "elsewhere"
+            elsewhere.mkdir()
+            try:
+                os.chdir(elsewhere)
+                saved = snapshot("read-back", run)
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(saved.batteries, source.batteries)
 
     def test_snapshot_rejects_unsafe_names_before_mutation(self):
         for name in ("/tmp/x", "../../x", "a/b"):

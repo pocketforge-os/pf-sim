@@ -10,3 +10,5 @@ extra_args = []
 text_scale = "100%"
 high_contrast = false
 first_run_complete = false
+[power]
+batteries = [{name="BAT0", capacity=82, status="Discharging", scope="System"}]
