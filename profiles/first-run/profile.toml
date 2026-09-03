@@ -3,6 +3,7 @@ name = "first-run"
 description = "Fresh shell state showing the first-run flow"
 [stack]
 authority = true
+supervisor = "pf-sim"
 [shell]
 extra_args = []
 [prefs]

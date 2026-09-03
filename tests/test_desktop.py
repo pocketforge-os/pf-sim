@@ -5,8 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
 
 from pf_sim.backend.desktop import COMPONENTS, DesktopBackend, proc_start
+from pf_sim.profiles import resolve_profile
 
 
 FAKE = Path(__file__).parent / "fakebins" / "fake-component"
@@ -97,3 +99,16 @@ class DesktopTests(unittest.TestCase):
             self.assertIn("weston_socket_missing", status["degraded_reasons"])
         finally:
             process.terminate(); process.wait()
+
+    def test_pf_sim_supervisor_authority_overrides(self):
+        commands = []
+        process = Mock(pid=os.getpid()); process.poll.return_value = None
+        def spawn(name, command, path, records, env=None):
+            commands.append((name, command)); return process
+        with patch.object(self.backend, "_spawn", side_effect=spawn), patch.object(self.backend, "_wait_socket", return_value=True):
+            self.backend.up(shell_bin=self.bin/"pf-shell", authorityd_bin=self.bin/"pf-session-authorityd", profile=resolve_profile("seeded-default"))
+        authority = next(command for name,command in commands if name=="authorityd")
+        supervisor = next(command for name,command in commands if name=="supervisor")
+        for flag in ("--start-command","--graceful-stop-command","--terminate-command","--activate-owner-command"):
+            self.assertIn(flag,authority)
+        self.assertEqual(supervisor[1:3],["-m","pf_sim.supervisor"])

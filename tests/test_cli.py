@@ -50,3 +50,8 @@ class CliStatusTests(unittest.TestCase):
             with self.subTest(argv=argv), patch("sys.stderr", new=io.StringIO()) as stderr:
                 self.assertEqual(main(argv), 2)
                 self.assertIn("reason=" + reason, stderr.getvalue())
+
+    def test_invalid_fixture_item_name_exits_two_before_rpc(self):
+        with patch("pf_sim.cli.AuthorityClient") as client, patch("sys.stderr", new=io.StringIO()) as stderr:
+            self.assertEqual(main(["launch", "../bad"]), 2)
+            self.assertIn("reason=invalid_item", stderr.getvalue()); client.assert_not_called()

@@ -1,0 +1,3 @@
+behaviour = "stay"
+launch_delay_ms = 1500
+pattern = "fixtures/patterns/ridgeline.png"

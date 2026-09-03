@@ -22,6 +22,7 @@ class Profile:
     high_contrast: bool
     first_run_complete: bool
     source: str
+    supervisor: str
 
 
 def profile_roots() -> tuple[tuple[Path, str], ...]:
@@ -38,7 +39,8 @@ def load_profile(path: Path, source: str = "path") -> Profile:
                    bool(data.get("stack", {}).get("authority", True)),
                    tuple(data.get("shell", {}).get("extra_args", [])), scale,
                    bool(prefs.get("high_contrast", False)),
-                   bool(prefs.get("first_run_complete", True)), source)
+                   bool(prefs.get("first_run_complete", True)), source,
+                   data.get("stack", {}).get("supervisor", "pf-sim"))
 
 
 def resolve_profile(name_or_path: str, *, allow_path: bool = False) -> Profile:
@@ -88,6 +90,8 @@ def seed_profile(run_dir: Path, profile: Profile, scale: str | None = None, cont
 
 
 def validate_profile(profile: Profile) -> None:
+    if profile.supervisor not in ("pf-sim", "shell"):
+        raise ValueError("reason=invalid_supervisor")
     state = profile.path / "state"
     if not state.exists(): return
     for path in state.rglob("*"):
@@ -140,7 +144,7 @@ def snapshot(name: str, run_dir: Path) -> Profile:
     sanitize_tree(target / "state")
     (target / "profile.toml").write_text(
         f'[profile]\nname = {json.dumps(name)}\ndescription = {json.dumps(description)}\n\n'
-        f'[stack]\nauthority = {str(authority_enabled).lower()}\n\n[shell]\nextra_args = []\n\n'
+        f'[stack]\nauthority = {str(authority_enabled).lower()}\nsupervisor = "pf-sim"\n\n[shell]\nextra_args = []\n\n'
         f'[prefs]\ntext_scale = {json.dumps(text_scale)}\nhigh_contrast = {str(high_contrast).lower()}\n'
         f'first_run_complete = {str(first_run_complete).lower()}\n')
     result = load_profile(target, "home"); validate_profile(result); return result
