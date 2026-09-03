@@ -21,6 +21,16 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(prefs["textScale"], scale + "%")
                     self.assertEqual(prefs["highContrast"], contrast == "hc")
 
+    def test_first_run_visual_overrides_do_not_complete_first_run(self):
+        profile = load_profile(Path("profiles/first-run"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seed_profile(root, profile, "200", "hc")
+            prefs = json.loads((root / "shell/prefs.json").read_text())
+            self.assertFalse(prefs["firstRunComplete"])
+            self.assertEqual(prefs["textScale"], "200%")
+            self.assertTrue(prefs["highContrast"])
+
     def test_power_profile_renders_fake_sysfs_tree(self):
         profile = load_profile(Path("profiles/controller-battery-low"))
         with tempfile.TemporaryDirectory() as tmp:

@@ -23,6 +23,7 @@ class Route:
     skip: bool = False
     reason: str | None = None
     profiles: frozenset[str] | None = None
+    expect: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,15 @@ def load(path: str | Path) -> Matrix:
         reason = raw.get("reason")
         if not isinstance(skip, bool) or (skip and not isinstance(reason, str)):
             raise ValueError(f"reason=invalid_matrix_skip route={route_name}")
-        definitions[route_name] = Route(route_name, tuple(steps), nodes, role, skip, reason, profiles)
+        expect = raw.get("expect")
+        if not skip and (not isinstance(expect, dict) or not isinstance(expect.get("screen"), str)):
+            raise ValueError(f"reason=invalid_matrix_expect route={route_name}")
+        if expect is not None:
+            allowed = {"screen", "focused_prefix", "search_query"}
+            if set(expect) - allowed or any(not isinstance(item, str) for item in expect.values()):
+                raise ValueError(f"reason=invalid_matrix_expect route={route_name}")
+            expect = dict(expect)
+        definitions[route_name] = Route(route_name, tuple(steps), nodes, role, skip, reason, profiles, expect)
     return Matrix(name, axes["routes"], axes["scales"], axes["contrasts"], axes["profiles"],
                   definitions, int(settings.get("min_gap", 0)), float(settings.get("contrast_floor", 4.5)))
 
@@ -138,6 +147,7 @@ def cells(spec: Matrix, only: dict[str, str] | None = None) -> list[Cell]:
 class Backend(Protocol):
     def start(self, profile: str, scale: str, contrast: str) -> None: ...
     def execute(self, step: dict) -> object: ...
+    def observe(self) -> dict: ...
     def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix) -> dict: ...
 
 
@@ -151,16 +161,31 @@ class LiveMatrixBackend:
         self.live.start(profile, scale, contrast, True)
 
     def execute(self, step: dict) -> object:
+        before = self.live.automation.scene().get("revision", 0)
         try:
-            return self.live.execute(step)
+            result = self.live.execute(step)
         except RuntimeError as error:
             # This known profile deliberately has no authority socket. Its shell
             # continuously presents, so input's post-action idle wait times out
             # even though the action was accepted. Capture has the corresponding
             # bounded content-stability fallback and remains the source of truth.
             if self.profile == "degraded-authority" and str(error) == "reason=automation_error error=timeout":
-                return {"settled": "content-stable", "revision_churn": True}
-            raise
+                result = {"settled": "content-stable", "revision_churn": True}
+            else:
+                raise
+        # The virtual gamepad tap is asynchronous. wait_idle can observe the old
+        # frame before the final evdev event is consumed, so also require every
+        # action in the step to advance the semantic revision.
+        expected = before + (len(step["seq"].split()) if step["op"] == "input" else 1)
+        deadline = time.monotonic() + 3
+        while self.live.automation.scene().get("revision", 0) < expected:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("reason=input_not_observed")
+            time.sleep(.02)
+        return result
+
+    def observe(self) -> dict:
+        return self.live.observe()[0]
 
     def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix) -> dict:
         png, sidecar = capture.capture(cell.name, self.instance)
@@ -207,7 +232,18 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
             record = {"name": cell.name, "route": cell.route, "scale": cell.scale,
                       "contrast": cell.contrast, "profile": cell.profile, "status": "error"}
             try:
+                if cell.route != "first-run":
+                    _reset(current)
                 for step in route.steps: current.execute(step)
+                observed = current.observe()
+                screen = _screen(observed)
+                record.update(observed_screen=screen, observed_focused=observed.get("focused", ""))
+                if not _matches(route.expect or {}, observed, screen):
+                    expected = route.expect.get("screen") if route.expect else cell.route
+                    raise RuntimeError(
+                        f"reason=route_mismatch expected={expected} "
+                        f"observed={screen}/{observed.get('focused', '')}"
+                    )
                 last = None
                 for _ in range(repeat):
                     last = current.capture_and_measure(cell, route, root, spec); hashes.append(last["sha256"])
@@ -227,6 +263,65 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
     (root / "index.html").write_text(render_html(report))
     status = failed == 0 and deterministic
     return (0 if status or no_fail else 1), report, root
+
+
+_SCREEN_MARKERS = {
+    "first-run": "first-run-panel",
+    "quick": "quick-panel-surface",
+    "details": "detail-title",
+    "library": "library-search",
+    "search-populated": "search-results-scroll-region",
+    "home": "home-scroll-region",
+}
+
+
+def _node_ids(node: object):
+    if not isinstance(node, dict):
+        return
+    node_id = node.get("id")
+    if isinstance(node_id, str):
+        yield node_id
+    for child in node.get("children", []):
+        yield from _node_ids(child)
+
+
+def _screen(scene: dict) -> str:
+    ids = set(_node_ids(scene.get("scene")))
+    # Overlays must win over the underlying route nodes they intentionally retain.
+    for name in ("first-run", "quick", "details", "library", "search-populated", "home"):
+        if _SCREEN_MARKERS[name] in ids:
+            return name
+    return "unknown"
+
+
+def _matches(expect: dict, scene: dict, screen: str) -> bool:
+    return (screen == expect.get("screen")
+            and ("focused_prefix" not in expect
+                 or str(scene.get("focused", "")).startswith(expect["focused_prefix"]))
+            and ("search_query" not in expect
+                 or scene.get("search_query") == expect["search_query"]))
+
+
+def _reset(backend: Backend) -> None:
+    backend.execute({"op": "input", "seq": "SafeReturn"})
+    for _ in range(8):
+        scene = backend.observe()
+        screen = _screen(scene)
+        query = scene.get("search_query", "")
+        if screen == "first-run":
+            backend.execute({"op": "input", "seq": "Start"})
+            continue
+        if screen == "home" and query == "":
+            return
+        if screen == "home" and query:
+            backend.execute({"op": "input", "seq": "Search.open"})
+            backend.execute({"op": "text", "value": ""})
+        backend.execute({"op": "input", "seq": "Back"})
+    scene = backend.observe()
+    raise RuntimeError(
+        f"reason=route_reset_failed observed={_screen(scene)}/{scene.get('focused', '')} "
+        f"search_query={scene.get('search_query', '')!r}"
+    )
 
 
 def _skip_record(cell: Cell) -> dict:

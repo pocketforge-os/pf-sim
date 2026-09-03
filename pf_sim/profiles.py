@@ -115,7 +115,7 @@ def list_profiles() -> list[Profile]:
 def effective_prefs(profile: Profile, scale: str | None = None, contrast: str | None = None) -> dict | None:
     if not profile.first_run_complete and scale is None and contrast is None:
         return None
-    return {"schemaVersion": 2, "firstRunComplete": True,
+    return {"schemaVersion": 2, "firstRunComplete": profile.first_run_complete,
             "textScale": SCALES.get(scale, profile.text_scale),
             "highContrast": profile.high_contrast if contrast is None else contrast == "hc"}
 
