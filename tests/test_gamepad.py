@@ -20,8 +20,23 @@ class PackingTests(unittest.TestCase):
         packed = gamepad.pack_setup()
         self.assertEqual(len(packed), 92)
         self.assertEqual(packed[:8], b"\x06\x00\x09\x12\x46\x50\x01\x00")
-        self.assertEqual(packed[8:31], b"pocketforge-sim-gamepad")
-        self.assertEqual(packed[31:], b"\0" * 61)
+        self.assertEqual(packed[8:39], b"pocketforge-sim-gamepad:default")
+        self.assertEqual(packed[39:], b"\0" * 53)
+
+    def test_ui_get_sysname_ioctl_is_byte_exact(self):
+        self.assertEqual(gamepad.UI_GET_SYSNAME, 0x8050552c)
+
+    def test_resolves_event_node_within_own_sysfs_device(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sysfs = Path(tmp) / "sys"
+            own = sysfs / "devices" / "virtual" / "input" / "input123" / "event17"
+            other = sysfs / "devices" / "virtual" / "input" / "input124" / "event18"
+            own.mkdir(parents=True)
+            other.mkdir(parents=True)
+            self.assertEqual(
+                gamepad.find_event_node("input123", timeout=0.1, sysfs_root=sysfs,
+                                        dev_root=Path("/dev/input")),
+                "/dev/input/event17")
 
 
 class ProtocolTests(unittest.TestCase):

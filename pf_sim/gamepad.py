@@ -21,6 +21,7 @@ from .evdev_codes import EV_KEY, EV_SYN, SYN_REPORT
 
 DEVICE_NAME = "pocketforge-sim-gamepad"
 UINPUT_PATH = "/dev/uinput"
+SYSNAME_SIZE = 80
 INPUT_EVENT = struct.Struct("@llHHi")
 UINPUT_SETUP = struct.Struct("@HHHH80sI")
 _children: dict[str, subprocess.Popen] = {}
@@ -35,47 +36,50 @@ UI_SET_KEYBIT = _ioc(1, ord("U"), 101, 4)
 UI_DEV_CREATE = _ioc(0, ord("U"), 1, 0)
 UI_DEV_DESTROY = _ioc(0, ord("U"), 2, 0)
 UI_DEV_SETUP = _ioc(1, ord("U"), 3, UINPUT_SETUP.size)
+UI_GET_SYSNAME = _ioc(2, ord("U"), 44, SYSNAME_SIZE)
 
 
 def pack_event(event_type: int, code: int, value: int) -> bytes:
     return INPUT_EVENT.pack(0, 0, event_type, code, value)
 
 
-def pack_setup() -> bytes:
-    name = DEVICE_NAME.encode().ljust(80, b"\0")
+def device_name(instance: str) -> str:
+    return f"{DEVICE_NAME}:{instance}"
+
+
+def pack_setup(instance: str = "default") -> bytes:
+    name = device_name(instance).encode()[:79].ljust(80, b"\0")
     return UINPUT_SETUP.pack(0x06, 0x1209, 0x5046, 1, name, 0)
 
 
-def _named_event_nodes() -> set[str]:
-    result = set()
-    for name_file in Path("/sys/class/input").glob("event*/device/name"):
-        try:
-            if name_file.read_text().strip() == DEVICE_NAME:
-                result.add(f"/dev/input/{name_file.parents[1].name}")
-        except FileNotFoundError:
-            pass
-    return result
-
-
-def find_event_node(timeout: float = 2.0, exclude: set[str] | None = None) -> str:
+def find_event_node(sysname: str, timeout: float = 2.0,
+                    sysfs_root: Path = Path("/sys"), dev_root: Path = Path("/dev/input")) -> str:
+    """Resolve only the event node belonging to the uinput fd's kernel sysname."""
     deadline = time.monotonic() + timeout
-    exclude = exclude or set()
     while time.monotonic() < deadline:
-        candidates = _named_event_nodes() - exclude
-        if candidates:
-            return sorted(candidates)[0]
+        for input_dir in (sysfs_root / "devices/virtual/input" / sysname,
+                          sysfs_root / "class/input" / sysname):
+            candidates = sorted(input_dir.glob("event*"))
+            if candidates:
+                return str(dev_root / candidates[0].name)
         time.sleep(0.02)
     raise RuntimeError("reason=event_node_timeout")
 
 
 class UInputDevice:
-    def __init__(self, codes: list[int]):
+    def __init__(self, codes: list[int], instance: str):
         self.fd = os.open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK)
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
         for code in codes:
             fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
-        fcntl.ioctl(self.fd, UI_DEV_SETUP, pack_setup())
+        fcntl.ioctl(self.fd, UI_DEV_SETUP, pack_setup(instance))
         fcntl.ioctl(self.fd, UI_DEV_CREATE)
+        buffer = bytearray(SYSNAME_SIZE)
+        fcntl.ioctl(self.fd, UI_GET_SYSNAME, buffer, True)
+        self.sysname = bytes(buffer).split(b"\0", 1)[0].decode("ascii")
+        if not self.sysname:
+            self.close()
+            raise RuntimeError("reason=uinput_sysname_missing")
 
     def emit(self, code: int, value: int) -> None:
         os.write(self.fd, pack_event(EV_KEY, code, value) + pack_event(EV_SYN, SYN_REPORT, 0))
@@ -259,17 +263,17 @@ def hold(instance: str, token: str) -> int:
     root.mkdir(parents=True, exist_ok=True)
     sock_path, state_path = _paths(instance)
     sock_path.unlink(missing_ok=True)
-    existing_nodes = _named_event_nodes()
-    device = UInputDevice([control.code for control in contract.controls])
+    name = device_name(instance)
+    device = UInputDevice([control.code for control in contract.controls], instance)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     running = True
     try:
-        event_node = find_event_node(exclude=existing_nodes)
+        event_node = find_event_node(device.sysname)
         server.bind(str(sock_path))
         server.listen(4)
         state_path.write_text(json.dumps({"pid": os.getpid(), "start_time": proc_start(os.getpid()),
                                           "token": token, "event_node": event_node,
-                                          "sysfs_name": DEVICE_NAME,
+                                          "sysfs_name": name,
                                           "created_at": datetime.now(timezone.utc).isoformat()},
                                          sort_keys=True) + "\n")
         while running:
