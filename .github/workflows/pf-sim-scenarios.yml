@@ -3,6 +3,11 @@ name: pf-sim scenarios
 on:
   workflow_call:
     inputs:
+      pf_sim_ref:
+        description: pf-sim revision to check out (defaults to the current workflow run SHA)
+        required: false
+        type: string
+        default: ""
       launcher_ref:
         description: Launcher commit to build (defaults to pins.toml)
         required: false
@@ -25,6 +30,11 @@ on:
         default: 1
   workflow_dispatch:
     inputs:
+      pf_sim_ref:
+        description: pf-sim revision to check out (defaults to the current workflow run SHA)
+        required: false
+        type: string
+        default: ""
       launcher_ref:
         description: Launcher commit to build
         required: false
@@ -55,7 +65,11 @@ jobs:
       XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
       PF_SIM_REQUIRE_UINPUT: "1"
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Check out pf-sim
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: pocketforge-os/pf-sim
+          ref: ${{ inputs.pf_sim_ref || github.sha }}
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y weston libxkbcommon-dev pkg-config python3-pil python3-yaml
       - name: Workflow lint and action pin guard

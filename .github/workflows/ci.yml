@@ -9,5 +9,6 @@ jobs:
   scenarios:
     uses: ./.github/workflows/pf-sim-scenarios.yml
     with:
+      pf_sim_ref: ${{ github.sha }}
       matrix_only: scale=200,contrast=hc
       repeat: 2

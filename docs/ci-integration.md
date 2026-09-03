@@ -7,12 +7,13 @@ jobs:
   pf-sim:
     uses: pocketforge-os/pf-sim/.github/workflows/pf-sim-scenarios.yml@main
     with:
+      pf_sim_ref: main
       launcher_ref: ${{ github.event.pull_request.head.sha }}
       scenarios: "scenarios/*.toml"
       matrix_only: "scale=200,contrast=hc"
       repeat: 2
 ```
 
-The caller does not copy pf-sim steps or source into the launcher. A separate launcher-side pin-bump PR updates `pins.toml` when pf-sim should adopt a new launcher revision; this workflow's `launcher_ref` input lets a launcher PR test its own commit before that bump.
+The caller does not copy pf-sim steps or source into the launcher. `pf_sim_ref` selects the pf-sim revision that every workflow step runs from; cross-repository callers must set it (normally to `main`). `launcher_ref` selects only the launcher revision passed to `toolchain build`. A separate launcher-side pin-bump PR updates `pins.toml` when pf-sim should adopt a new launcher revision, while `launcher_ref` lets a launcher PR test its own commit before that bump.
 
-The workflow can also be run manually. `launcher_ref` defaults to the revision in `pins.toml`, `scenarios` defaults to `scenarios/*.toml`, `repeat` defaults to `1`, and an empty `matrix_only` runs the complete matrix.
+The workflow can also be run manually. An empty `pf_sim_ref` uses the current workflow run SHA, `launcher_ref` defaults to the revision in `pins.toml`, `scenarios` defaults to `scenarios/*.toml`, `repeat` defaults to `1`, and an empty `matrix_only` runs the complete matrix.
