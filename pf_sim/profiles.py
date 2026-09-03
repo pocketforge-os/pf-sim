@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tomllib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import repo_root, safe_child, sim_home, validate_name
@@ -45,12 +45,12 @@ def load_profile(path: Path, source: str = "path") -> Profile:
                    tuple(data.get("power", {}).get("batteries", [])))
 
 
-def normalize_batteries(profile: Profile) -> list[dict]:
+def normalize_battery_entries(entries: list[dict] | tuple[dict, ...]) -> list[dict]:
     normalized = []
     required = ("name", "capacity", "status", "scope")
     valid_statuses = {"Charging", "Discharging", "Full", "Not charging", "Unknown"}
     valid_scopes = {"System", "Device"}
-    for item in profile.batteries:
+    for item in entries:
         raw_name = item.get("name", "unknown") if isinstance(item, dict) else "unknown"
         name = str(raw_name)
         for field in required:
@@ -70,6 +70,10 @@ def normalize_batteries(profile: Profile) -> list[dict]:
         normalized.append({"name": validated_name, "capacity": capacity,
                            "status": item["status"], "scope": item["scope"]})
     return normalized
+
+
+def normalize_batteries(profile: Profile) -> list[dict]:
+    return normalize_battery_entries(profile.batteries)
 
 
 def render_power_supply(run_dir: Path, profile: Profile) -> None:
@@ -188,8 +192,7 @@ def _snapshot_batteries(run_dir: Path, source_profile: str) -> list[dict]:
                 raise ValueError(
                     f"reason=invalid_power_profile field=tree battery={battery_dir.name}"
                 ) from error
-    return normalize_batteries(replace(load_profile(Path("profiles/seeded-default")),
-                                       batteries=tuple(batteries)))
+    return normalize_battery_entries(batteries)
 
 
 def _power_toml(batteries: list[dict]) -> str:

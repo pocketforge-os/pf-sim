@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -146,6 +148,27 @@ class ProfileTests(unittest.TestCase):
             reapplied = root / "reapplied"
             render_power_supply(reapplied, saved)
             self.assertEqual(list((reapplied / "power_supply").iterdir()), [])
+
+    def test_snapshot_reads_power_tree_when_source_deleted_from_other_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            source_path = root / "profiles/ephemeral-power"
+            shutil.copytree(Path("profiles/controller-battery-low").resolve(), source_path)
+            source = load_profile(source_path)
+            run = self._snapshot_run(root, profile="ephemeral-power", authority=True, prefs=None)
+            render_power_supply(run, source)
+            shutil.rmtree(source_path)
+
+            previous_cwd = Path.cwd()
+            elsewhere = root / "elsewhere"
+            elsewhere.mkdir()
+            try:
+                os.chdir(elsewhere)
+                saved = snapshot("read-back", run)
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(saved.batteries, source.batteries)
 
     def test_snapshot_rejects_unsafe_names_before_mutation(self):
         for name in ("/tmp/x", "../../x", "a/b"):
