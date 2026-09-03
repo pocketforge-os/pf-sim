@@ -1,0 +1,40 @@
+name = "settings-caption-gap"
+instance = "audit-settings-gap"
+profile = "seeded-default"
+
+# product-010 recorded a seven-pixel raster gap (empty x=1010..1016) in the
+# interactive capture. The rev-native evidence renderer lays the caption out
+# differently, so that historical pre-fix value cannot honestly be re-derived.
+[[phase]]
+name = "pre-fix"
+mode = "unreproducible"
+launcher_rev = "b876f059d2857ca4634537b86faf6ede834526a2"
+reason = "rev-native settings evidence uses a different caption line break than the historical interactive capture"
+historical = [{ kind = "gap", axis = "horizontal", value = 7, floor = 8 }]
+
+[[phase]]
+name = "post-fix"
+mode = "fixture"
+launcher_rev = "657fe4c005acd3fe9a9298e582f3520c84eb0c92"
+fixture = "settings"
+scale = 200
+min_gap = 8
+[[phase.region]]
+name = "caption"
+x = 404
+y = 398
+w = 590
+h = 48
+[[phase.region]]
+name = "value"
+x = 1010
+y = 382
+w = 72
+h = 52
+[[phase.expect]]
+kind = "gap"
+a = "caption"
+b = "value"
+axis = "horizontal"
+operator = "ge"
+value = 8

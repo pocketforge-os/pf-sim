@@ -55,6 +55,31 @@ normally reports `settled=idle`. If the shell continuously re-presents an unchan
 known `degraded-authority` case), capture falls back to bounded content-stability sampling and
 reports `settled=content-stable`, `revision_churn=true`, and the observed revision rate in its
 metadata sidecar.
+
+## Measured audits
+
+Run `pf-simctl measure CAPTURE` after a frame-complete capture. The overlay is the visual
+index into the machine-readable files; ink extents are half-open pixel boxes, and their
+signed insets are negative when ink escapes a node's declared bounds. Each gaps-matrix
+entry reports horizontal and vertical separation for both declared and raster-ink boxes:
+positive means clear space, zero means touching, and negative means overlap. Contrast is
+measured from the most contrasting sufficiently represented ink colour and the dominant
+fill inside the text bounds; the surrounding ring excludes rounded-corner page bleed.
+No qualifying ink is reported as `NO_INK`. Ratios use WCAG relative luminance. The reports preserve the capture hash, launcher/runtime revisions,
+profile, scale, and contrast mode from the capture sidecar.
+
+To add a regression audit, create a TOML recipe under `audits/`. Give it a validated audit
+name, profile, optional scale/contrast, and one or more phases with pinned launcher
+commits. A `scene` phase names exact scene node ids. A `fixture` phase names the
+revision's own fixture (`settings`, `home`, or `sim-frame`) and pixel regions as
+`name/x/y/w/h`; the report records both the mode and exact fixture command. Each phase declares measurable
+expectations (`gap`, `check_status`, `negative_inset`, `all_insets_nonnegative`, or
+`ink_height`); use numeric `eq`, `lt`, `le`, `gt`, or `ge` operators where applicable.
+Run it with `pf-simctl audit run PATH`. The runner builds the pinned source, starts only the
+local headless simulator for scene phases or invokes the pinned binary's revision-native
+renderer for fixture phases. Launcher source is never patched. If no native renderer can
+produce the historical state, use `mode = "unreproducible"` with a reason and
+`historical = true` measurements; a passing post-fix phase then yields `audit_status=partial`.
 ## Deterministic session states
 
 Use fixture sessions when a screenshot must capture a state rather than a timing

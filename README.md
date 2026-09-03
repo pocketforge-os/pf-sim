@@ -62,6 +62,34 @@ frame, then writes `NAME.png`, `NAME.scene.json`, and an audited metadata sideca
 screenshot fallback. The raw `key KEYSYM...` fallback works only with `up --no-gamepad` in a
 windowed Weston session.
 
+## Measure
+
+Turn a frame-complete capture into reusable raster evidence with:
+
+```sh
+./pf-simctl measure seeded-200-hc --role text --min-gap 8 --contrast-floor 4.5
+./pf-simctl measure seeded-200-hc --nodes title,prompts --no-fail
+./pf-simctl measure diff before after
+```
+
+The default output is `$PF_SIM_HOME/captures/INSTANCE/NAME.measure/`. `overlay.png` labels
+the selected scene boxes, `ink.json` records tight raster extents and signed insets,
+`gaps.json` contains pairwise declared/ink separation, and `contrast.json` records
+WCAG relative-luminance contrast sampled from the raster. `report.json` and `report.md`
+combine provenance and PASS/FAIL results. A failed gap or contrast check exits 1 unless
+`--no-fail` is used. Explicit PNG and scene paths support standalone captures.
+
+Committed audit recipes pin launcher revisions and reproduce a finding end to end:
+
+```sh
+./pf-simctl audit run audits/product-010/settings-caption-gap.toml
+```
+
+Each phase explicitly uses scene data, a pinned revision's native pixel fixture, or an
+honestly documented unreproducible historical value. The command prints phase modes and
+measured values followed by `audit_status=reproduced|partial|not_reproduced`; `partial`
+means the post-fix result reproduced while a pre-fix state had no rev-native renderer.
+
 ## Input
 
 pf-sim presents a Linux virtual gamepad so the shell receives the same evdev button codes and

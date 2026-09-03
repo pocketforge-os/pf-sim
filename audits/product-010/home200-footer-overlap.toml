@@ -1,0 +1,57 @@
+name = "home200-footer-overlap"
+instance = "audit-home200"
+profile = "seeded-default"
+
+[[phase]]
+name = "pre-fix"
+mode = "fixture"
+launcher_rev = "76ecd10"
+fixture = "home"
+scale = 200
+min_gap = 0
+[[phase.region]]
+name = "card-row"
+x = 48
+y = 360
+w = 1184
+h = 300
+[[phase.region]]
+name = "prompt-band"
+x = 620
+y = 660
+w = 612
+h = 32
+[[phase.expect]]
+kind = "gap"
+a = "card-row"
+b = "prompt-band"
+axis = "vertical"
+operator = "lt"
+value = 0
+
+[[phase]]
+name = "post-fix"
+mode = "fixture"
+launcher_rev = "b876f059d2857ca4634537b86faf6ede834526a2"
+fixture = "home"
+scale = 200
+min_gap = 0
+[[phase.region]]
+name = "card-row"
+x = 48
+y = 360
+w = 1184
+h = 300
+[[phase.region]]
+name = "prompt-band"
+x = 620
+y = 660
+w = 612
+h = 32
+[[phase.expect]]
+kind = "gap"
+a = "card-row"
+b = "prompt-band"
+axis = "vertical"
+operator = "ge"
+value = 0
