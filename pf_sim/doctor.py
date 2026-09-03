@@ -7,8 +7,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .evdev_codes import CODES
-from .gamepad import UINPUT_PATH, UInputDevice, find_event_node, wait_event_node_readable
+from .gamepad import (
+    UINPUT_PATH,
+    UInputDevice,
+    contract_codes,
+    find_event_node,
+    wait_event_node_readable,
+)
 from .toolchain import manifest_path
 
 
@@ -16,7 +21,7 @@ def event_node_access() -> str:
     """Probe access to the event node udev creates for this process."""
     if not os.access(UINPUT_PATH, os.W_OK):
         return "unknown"
-    device = UInputDevice([CODES["BTN_SOUTH"]], "doctor-probe")
+    device = UInputDevice(contract_codes(), "doctor-probe")
     try:
         event_node = find_event_node(device.sysname)
         return "ok" if wait_event_node_readable(event_node) else "unreadable"

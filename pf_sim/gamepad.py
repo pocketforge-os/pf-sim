@@ -66,7 +66,7 @@ def find_event_node(sysname: str, timeout: float = 2.0,
     raise RuntimeError("reason=event_node_timeout")
 
 
-def wait_event_node_readable(event_node: str, timeout: float = 1.0) -> bool:
+def wait_event_node_readable(event_node: str, timeout: float = 3.0) -> bool:
     """Allow udev time to finish applying ownership/mode to a new event node."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -74,6 +74,11 @@ def wait_event_node_readable(event_node: str, timeout: float = 1.0) -> bool:
             return True
         time.sleep(0.02)
     return os.access(event_node, os.R_OK)
+
+
+def contract_codes() -> list[int]:
+    """Return the complete key-code set registered by the simulated gamepad."""
+    return [control.code for control in DeviceContract.load().controls]
 
 
 class UInputDevice:
@@ -278,13 +283,12 @@ def destroy(instance: str) -> str:
 
 
 def hold(instance: str, token: str) -> int:
-    contract = DeviceContract.load()
     root = run_dir(instance)
     root.mkdir(parents=True, exist_ok=True)
     sock_path, state_path = _paths(instance)
     sock_path.unlink(missing_ok=True)
     name = device_name(instance)
-    device = UInputDevice([control.code for control in contract.controls], instance)
+    device = UInputDevice(contract_codes(), instance)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     running = True
     try:
