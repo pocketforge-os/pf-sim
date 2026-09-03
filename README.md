@@ -174,7 +174,9 @@ index every declared cell; skipped cells retain their reason. `--repeat 2` compa
 cell's raster hashes and prints the aggregate determinism result. Measurement failures or
 nondeterminism make the command exit 1; `--no-fail` is intended only for report-only CI.
 
-On the reference laptop, the full matrix completed in **574.62 seconds**. This includes
+On the reference laptop, a seeded-default run completed 42 cells in approximately
+**289 seconds** (about 6.9 seconds per declared cell); the full matrix should therefore
+be budgeted at roughly **24 minutes**. This includes
 simulator startup, capture settling, measurement, and report generation.
 ## Fixture apps and sessions
 

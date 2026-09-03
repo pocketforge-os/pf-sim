@@ -119,7 +119,35 @@ class MatrixTests(unittest.TestCase):
         )
         self.assertEqual(code, 1)
         self.assertEqual(fake.captures, [])
-        self.assertIn("reason=route_mismatch expected=first-run observed=quick/quick-0", report["cells"][0]["reason"])
+        self.assertIn("reason=cell_error stage=observe error=RuntimeError: reason=route_mismatch expected=first-run observed=quick/quick-0", report["cells"][0]["reason"])
+
+    def test_cell_error_reports_stage_type_and_prints_failed_cell(self):
+        class BrokenCapture(FakeBackend):
+            def capture_and_measure(self, cell, route, root, spec):
+                raise OSError("capture vanished")
+        stdout = io.StringIO()
+        with patch("sys.stdout", new=stdout):
+            code, report, _ = matrix.run(
+                self.spec,
+                only={"route": "home", "profile": "seeded-default", "scale": "100", "contrast": "default"},
+                out=self.root / "error", backend=BrokenCapture(),
+            )
+        reason = "reason=cell_error stage=capture error=OSError: capture vanished"
+        self.assertEqual(code, 1)
+        self.assertEqual(report["cells"][0]["reason"], reason)
+        self.assertIn(f"matrix_cell=home-100-default-seeded-default {reason}", stdout.getvalue())
+
+    def test_measure_nodes_reject_string_and_empty_list(self):
+        original = self.path.read_text()
+        for replacement in ('nodes = "home-title"', "nodes = []"):
+            with self.subTest(replacement=replacement):
+                bad = self.root / ("bad-string.toml" if '"home-title"' in replacement else "bad-empty.toml")
+                bad.write_text(original.replace(
+                    "[measure.nodes_by_route.home]\nrole = \"text\"",
+                    f"[measure.nodes_by_route.home]\nrole = \"text\"\n{replacement}", 1,
+                ))
+                with self.assertRaisesRegex(ValueError, "reason=invalid_matrix_measure route=home"):
+                    matrix.load(bad)
 
     def test_leaked_search_query_is_cleared_during_reset(self):
         fake = FakeBackend(leaked_query=True)

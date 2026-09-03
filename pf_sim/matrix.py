@@ -86,6 +86,10 @@ def load(path: str | Path) -> Matrix:
         measured = measured_routes.get(route_name, {}) if isinstance(measured_routes, dict) else {}
         if not isinstance(measured, dict): raise ValueError(f"reason=invalid_matrix_measure route={route_name}")
         node_values = measured.get("nodes", raw.get("nodes"))
+        if (node_values is not None
+                and (not isinstance(node_values, list) or not node_values
+                     or any(not isinstance(item, str) for item in node_values))):
+            raise ValueError(f"reason=invalid_matrix_measure route={route_name}")
         nodes = None if node_values is None else frozenset(_names("node", item) for item in node_values)
         role = measured.get("role", raw.get("role"))
         if role is not None: validate_name("role", role)
@@ -206,22 +210,41 @@ class LiveMatrixBackend:
         return self.live.observe()[0]
 
     def capture_and_measure(self, cell: Cell, route: Route, root: Path, spec: Matrix) -> dict:
-        png, sidecar = capture.capture(cell.name, self.instance)
+        try:
+            png, sidecar = capture.capture(cell.name, self.instance)
+        except Exception as error:
+            raise CellStageError("capture", error) from error
         cell_root = safe_child(root / "cells", "cell", cell.name)
         cell_root.mkdir(parents=True, exist_ok=True)
         target = cell_root / "capture.png"
         shutil.copy2(png, target)
         shutil.copy2(png.with_suffix(".scene.json"), cell_root / "capture.scene.json")
         shutil.copy2(png.with_suffix(".json"), cell_root / "capture.json")
-        measured = measure.run(target, cell_root / "capture.scene.json", cell_root / "measure",
-                               node_ids=route.nodes, role=route.role, min_gap=spec.min_gap,
-                               contrast_floor=spec.contrast_floor)
+        try:
+            measured = measure.run(target, cell_root / "capture.scene.json", cell_root / "measure",
+                                   node_ids=route.nodes, role=route.role, min_gap=spec.min_gap,
+                                   contrast_floor=spec.contrast_floor)
+        except Exception as error:
+            raise CellStageError("measure", error) from error
         failures = [name for name, check in measured["checks"].items() if check["status"] == "FAIL"]
         return {"status": measured["status"], "sha256": sidecar["sha256"],
                 "settled": sidecar.get("settled"), "failures": failures,
                 "capture": f"cells/{cell.name}/capture.png",
                 "overlay": f"cells/{cell.name}/measure/overlay.png",
                 "report": f"cells/{cell.name}/measure/report.md"}
+
+
+class CellStageError(RuntimeError):
+    def __init__(self, stage: str, error: Exception):
+        self.stage = stage
+        self.error = error
+        super().__init__(str(error))
+
+
+def _error_reason(stage: str, error: Exception) -> str:
+    if isinstance(error, CellStageError):
+        stage, error = error.stage, error.error
+    return f"reason=cell_error stage={stage} error={type(error).__name__}: {error}"
 
 
 def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
@@ -239,7 +262,11 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
         runnable = [cell for cell in group if not cell.skip]
         if not runnable:
             records.extend(_skip_record(cell) for cell in group); continue
-        current.start(profile, scale, contrast)
+        try:
+            current.start(profile, scale, contrast)
+            start_error = None
+        except Exception as error:
+            start_error = error
         # First-run is the initial presentation and must be observed before navigation.
         runnable.sort(key=lambda cell: cell.route != "first-run")
         for cell in group:
@@ -249,10 +276,16 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
             hashes = []
             record = {"name": cell.name, "route": cell.route, "scale": cell.scale,
                       "contrast": cell.contrast, "profile": cell.profile, "status": "error"}
+            stage = "start"
             try:
+                if start_error is not None:
+                    raise start_error
                 if cell.route != "first-run":
+                    stage = "reset"
                     _reset(current)
+                stage = "recipe"
                 for step in route.steps: current.execute(step)
+                stage = "observe"
                 observed = current.observe()
                 screen = _screen(observed)
                 record.update(observed_screen=screen, observed_focused=observed.get("focused", ""))
@@ -263,11 +296,13 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
                         f"observed={screen}/{observed.get('focused', '')}"
                     )
                 last = None
+                stage = "capture"
                 for _ in range(repeat):
                     last = current.capture_and_measure(cell, route, root, spec); hashes.append(last["sha256"])
                 record.update(last or {}, deterministic=len(set(hashes)) == 1)
             except Exception as error:
-                record.update(reason=str(error), failures=[str(error)], deterministic=False)
+                reason = _error_reason(stage, error)
+                record.update(reason=reason, failures=[reason], deterministic=False)
             records.append(record)
     order = {cell.name: index for index, cell in enumerate(selected)}
     records.sort(key=lambda record: order[record["name"]])
@@ -280,6 +315,9 @@ def run(spec: Matrix, *, only=None, out: Path | None = None, repeat: int = 1,
     (root / "report.md").write_text(render_markdown(report))
     (root / "index.html").write_text(render_html(report))
     status = failed == 0 and deterministic
+    for record in records:
+        if record["status"] in ("FAIL", "error"):
+            print(f"matrix_cell={record['name']} {record.get('reason') or ','.join(record.get('failures', []))}")
     return (0 if status or no_fail else 1), report, root
 
 

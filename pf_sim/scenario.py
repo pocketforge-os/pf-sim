@@ -126,7 +126,13 @@ class LiveBackend:
     def authority(self): return AuthorityClient(run_dir(self.instance) / "session-authority.sock")
 
     def observe(self):
-        ping = self.automation.ping(); history = self.authority.history()
+        ping = self.automation.ping()
+        authority_path = run_dir(self.instance) / "session-authority.sock"
+        if authority_path.exists():
+            history = self.authority.history()
+        else:
+            history = []
+            ping["authority"] = "unavailable"
         self._add_session_state(ping, history)
         scene = self.automation.scene()
         scene.setdefault("route", route(scene))
