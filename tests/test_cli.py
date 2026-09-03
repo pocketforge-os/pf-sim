@@ -62,3 +62,16 @@ class CliStatusTests(unittest.TestCase):
         with patch("pf_sim.cli.AuthorityClient") as client, patch("sys.stderr", new=io.StringIO()) as stderr:
             self.assertEqual(main(["launch", "../bad"]), 2)
             self.assertIn("reason=invalid_item", stderr.getvalue()); client.assert_not_called()
+
+    def test_repeat_capture_compares_raster_and_scene_body(self):
+        captures = [
+            (Path("shot.png"), {"sha256": "same", "scene_body_sha256": "scene-a",
+                                "frames": 1, "revision": 1, "settled": "content-stable"}),
+            (Path("shot.png"), {"sha256": "same", "scene_body_sha256": "scene-b",
+                                "frames": 2, "revision": 2, "settled": "content-stable"}),
+        ]
+        with patch("pf_sim.cli.capture.capture", side_effect=captures), \
+                patch("sys.stdout", new=io.StringIO()) as stdout:
+            self.assertEqual(main(["capture", "--repeat", "2", "shot"]), 0)
+        self.assertIn("settled=content-stable", stdout.getvalue())
+        self.assertIn("deterministic=false", stdout.getvalue())

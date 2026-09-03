@@ -46,7 +46,7 @@ jobs:
           ./pf-simctl up --display headless
           ./pf-simctl input action Search.open
           ./pf-simctl text sun
-          ./pf-simctl capture ci-search-sun
+          ./pf-simctl capture ci-search-sun | grep 'settled=idle'
           python3 -c 'import json,pathlib; p=pathlib.Path.home()/".local/state/pf-sim/captures/default/ci-search-sun.scene.json"; s=json.loads(p.read_text()); assert s["search_query"]=="sun"; assert s["search_result_ids"]==["sunwake"]'
           ./pf-simctl text --clear
           ./pf-simctl input action Move.down
@@ -61,7 +61,7 @@ jobs:
           ./pf-simctl profile apply seeded-default --scale 200 --contrast hc
           ./pf-simctl capture ci-seeded-default
           ./pf-simctl profile apply degraded-authority
-          ./pf-simctl capture ci-degraded-authority
+          ./pf-simctl capture ci-degraded-authority | grep 'settled=content-stable'
           python3 -c 'from pathlib import Path; from PIL import Image; from pf_sim.capture import is_blank,sha256; p=Path.home()/".local/state/pf-sim/captures/default"; f=[p/("ci-"+n+".png") for n in ("first-run","seeded-default","degraded-authority")]; assert all(Image.open(x).size==(1280,720) and not is_blank(x) for x in f); assert sha256(f[0]) != sha256(f[1])'
           ./pf-simctl status --json
           ./pf-simctl down

@@ -50,7 +50,11 @@ Use `profile apply` and the scale/contrast flags instead of driving Settings wit
 the existing states, `power-status-present` and `controller-battery-low` render deterministic fake
 power-supply trees. A normal capture is frame-complete and emits a PNG, verbatim `.scene.json`, and
 metadata sidecar with frame/revision and content hashes. `capture --repeat 2 NAME` checks raster
-determinism; `--raw` retains the old time-based compositor fallback.
+and semantic-scene determinism; `--raw` retains the old time-based compositor fallback. Capture
+normally reports `settled=idle`. If the shell continuously re-presents an unchanged scene (the
+known `degraded-authority` case), capture falls back to bounded content-stability sampling and
+reports `settled=content-stable`, `revision_churn=true`, and the observed revision rate in its
+metadata sidecar.
 ## Deterministic session states
 
 Use fixture sessions when a screenshot must capture a state rather than a timing

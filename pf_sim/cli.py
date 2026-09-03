@@ -183,9 +183,10 @@ def main(argv=None) -> int:
             results = [capture.capture(args.name, args.instance, args.settle, raw=args.raw,
                        quiet_ms=args.quiet_ms, timeout_ms=args.timeout_ms) for _ in range(args.repeat)]
             path, sidecar = results[-1]
-            deterministic = len({item[1]["sha256"] for item in results}) == 1
+            deterministic = len({(item[1]["sha256"], item[1].get("scene_body_sha256")) for item in results}) == 1
             suffix = f" deterministic={str(deterministic).lower()}" if args.repeat > 1 else ""
-            print(f"capture_status=ok path={path} sha256={sidecar['sha256']} frames={sidecar.get('frames', 'raw')} revision={sidecar.get('revision', 'raw')}{suffix}"); return 0
+            settled = f" settled={sidecar['settled']}" if "settled" in sidecar else ""
+            print(f"capture_status=ok path={path} sha256={sidecar['sha256']} frames={sidecar.get('frames', 'raw')} revision={sidecar.get('revision', 'raw')}{settled}{suffix}"); return 0
         if args.command == "text":
             result = AutomationClient(run_dir(args.instance) / "automation.sock").text("" if args.clear else args.value)
             print(f"text_status=ok frames={result['frames']} revision={result['revision']}"); return 0
