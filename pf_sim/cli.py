@@ -29,6 +29,7 @@ def parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name)
         command.add_argument("--backend", choices=["desktop"], default="desktop")
         if name in ("up", "down", "status"): command.add_argument("--instance", default="default")
+        if name == "down": command.add_argument("--reap-orphans", action="store_true")
         if name == "up":
             command.add_argument("--display", choices=["headless", "windowed"], default="headless")
             command.add_argument("--replace", action="store_true")
@@ -323,7 +324,7 @@ def main(argv=None) -> int:
             print(f"up_status=ready instance={args.instance} display={args.display} run_dir={path} weston_socket=pf-sim-{args.instance} input_source={source} automation={automation}")
             return 0
         if args.command == "down":
-            stopped = impl.down(args.instance)
+            stopped = impl.down(args.instance, reap_orphans=args.reap_orphans)
             print(f"down_status={'stopped' if stopped else 'not_running'} instance={args.instance}"); return 0
         result = impl.status(args.instance)
         print(json.dumps(result, indent=2, sort_keys=True) if args.json else " ".join(

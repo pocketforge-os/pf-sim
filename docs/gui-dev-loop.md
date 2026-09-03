@@ -1,137 +1,127 @@
 # GUI development loop
 
-The complete GUI workflow will land in P5. For now, the desktop simulator lifecycle is:
+This is the fresh-session path. Run commands through the checkout’s `pf-simctl`; it is location-independent and preserves the caller’s working directory, so relative profile and output paths retain their normal meaning.
+
+## Prerequisites and toolchain
+
+Set a writable runtime directory, build the pinned launcher/runtime once, then make every required doctor row green. `DISPLAY` and event-node access are advisory unless you need windowed or controller input; CI sets `PF_SIM_REQUIRE_UINPUT=1` so missing uinput is fatal.
 
 ```sh
-./pf-simctl doctor
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
 ./pf-simctl toolchain build
+./pf-simctl doctor
+```
+
+Doctor checks Python, Pillow, Weston and its kiosk/screenshot helpers, Cargo, xkbcommon, the runtime directory, toolchain manifest, uinput event-node readability, and orphaned pf-sim shells. Use a logind seat ACL, membership in `input`, or a udev rule narrowly matching `pocketforge-sim-gamepad:*` when the event node is unreadable.
+
+## Bring-up, profiles, and presets
+
+Headless pixman is the reproducible default; windowed mode needs `DISPLAY` and is for interactive observation.
+
+```sh
 ./pf-simctl up --display headless
-./pf-simctl profile apply seeded-default --scale 150 --contrast default
-./pf-simctl input action Search.open
-./pf-simctl text sun
-./pf-simctl capture current-screen
-./pf-simctl text --clear
-./pf-simctl input action Move.down
+./pf-simctl up --replace --display windowed
 ./pf-simctl status --json
 ./pf-simctl down
 ```
 
-Use `--display windowed` from a desktop session when interactive viewing is needed.
+`profile list/show/validate/apply/snapshot` manages state without navigating Settings. The committed profiles are `first-run`, `seeded-default`, `degraded-authority`, `power-status-present`, and `controller-battery-low`. Compose each with `--scale 100|150|200` and `--contrast default|hc`. Applying a profile reseeds and restarts affected components; snapshot output is sanitized and contains no live sockets, locks, or markers.
 
-## Product-010 capture matrix
+## Input and text
 
-Use the committed matrix instead of hand-seeding state or writing one-off pixel scripts:
-
-```sh
-./pf-simctl matrix run audits/product-010/matrix.toml
-./pf-simctl matrix run audits/product-010/matrix.toml --only profile=seeded-default
-```
-
-The runner starts each profile/scale/contrast preset once, drives only launcher-bound
-scenario inputs, captures and measures every applicable route, and emits linked Markdown,
-JSON, and offline HTML indexes. Settings is recorded as an explicit contract-unreachable
-skip at the pinned launcher revision; first-run is explicitly skipped for other profiles.
-Open the generated `index.html` for the thumbnail grid and follow its overlays to inspect
-node bounds. Use `--repeat 2` when checking raster determinism and `--no-fail` only when a
-report is required despite known measurement failures.
-
-The simulator user must be able to read the udev-created `/dev/input/event*` node. A
-desktop login normally grants this through systemd-logind's `uaccess` ACL. When running
-outside a logind seat session, add the user to the `input` group and start a new login
-session:
+The default virtual gamepad sends evdev codes through the launcher’s real `pf-input-map` contract. Inspect it with `input list` and drive semantic actions with `input action`, physical controls with `input press/hold`, or an ordered expression with `input seq`. These commands wait for the resulting frame unless `--no-wait` is deliberate.
 
 ```sh
-sudo usermod -aG input "$USER"
+./pf-simctl input action Search.open
+./pf-simctl input seq "east Move.down south"
+./pf-simctl text e
+./pf-simctl text --clear
 ```
 
-For CI or another intentionally shared simulator host, install this narrowly matched
-udev rule, then reload it:
+Text uses an automation-only seam because the handheld has no text keyboard. `key KEYSYM...` is only a fallback after `up --no-gamepad --display windowed`; it is intentionally rejected headlessly.
+
+## Frame-complete evidence and measurement
+
+`capture NAME` waits for a presented frame and writes `NAME.png`, `NAME.scene.json`, and a metadata sidecar under `$PF_SIM_HOME/captures/INSTANCE`. The scene is the semantic assertion surface; for example, assert `search_query` and `search_result_ids`, not a hand-read screenshot. `capture --repeat 2` compares raster and semantic hashes. `--raw` is the legacy compositor fallback.
 
 ```sh
-echo 'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pocketforge-sim-gamepad:*", MODE="0666"' | sudo tee /etc/udev/rules.d/99-pf-sim-gamepad.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger --subsystem-match=input
+./pf-simctl capture search-e
+./pf-simctl capture --repeat 2 stable-home
+./pf-simctl measure search-e --role text --min-gap 8 --contrast-floor 4.5
+./pf-simctl measure diff before after
 ```
 
-Thus the supported access routes are a logind seat `uaccess` ACL, `input` group
-membership, or the narrowly matched udev rule. `pf-simctl doctor` creates a temporary
-gamepad and reports `event_node_access=ok|unreadable` from its actual event node (or
-`unknown` when `/dev/uinput` is not writable); `gamepad create` also fails with a direct
-remediation hint if the actual node is unreadable.
+Measurement emits an overlay plus `ink.json`, `gaps.json`, `contrast.json`, `report.json`, and `report.md`. Positive gaps mean space, zero means touching, negative means overlap; signed negative insets mean ink escaped its declared node. Contrast uses WCAG relative luminance. Threshold failure exits nonzero; reserve `--no-fail` for explicitly report-only work.
 
-Input travels through the virtual evdev gamepad and the launcher's real `pf-input-map`; each input
-verb waits until the resulting shell frame is presented. Search text uses the automation-only
-`text VALUE`/`text --clear` path because no on-device keyboard exists.
+## Fixture apps and sessions
 
-Use `profile apply` and the scale/contrast flags instead of driving Settings with keys. Alongside
-the existing states, `power-status-present` and `controller-battery-low` render deterministic fake
-power-supply trees. A normal capture is frame-complete and emits a PNG, verbatim `.scene.json`, and
-metadata sidecar with frame/revision and content hashes. `capture --repeat 2 NAME` checks raster
-and semantic-scene determinism; `--raw` retains the old time-based compositor fallback. Capture
-normally reports `settled=idle`. If the shell continuously re-presents an unchanged scene (the
-known `degraded-authority` case), capture falls back to bounded content-stability sampling and
-reports `settled=content-stable`, `revision_churn=true`, and the observed revision rate in its
-metadata sidecar.
+`app list` names deterministic fixtures. The canonical lifecycle covers launch-dim, in-app, graceful return, and crash receipts:
 
-## Measured audits
+```sh
+./pf-simctl launch ridgeline
+./pf-simctl capture launch-dim
+./pf-simctl app status
+./pf-simctl capture in-app
+./pf-simctl safe-return
+./pf-simctl history --json
+./pf-simctl launch hollow-tides
+./pf-simctl app crash
+./pf-simctl history --json
+```
 
-Run `pf-simctl measure CAPTURE` after a frame-complete capture. The overlay is the visual
-index into the machine-readable files; ink extents are half-open pixel boxes, and their
-signed insets are negative when ink escapes a node's declared bounds. Each gaps-matrix
-entry reports horizontal and vertical separation for both declared and raster-ink boxes:
-positive means clear space, zero means touching, and negative means overlap. Contrast is
-measured from the most contrasting sufficiently represented ink colour and the dominant
-fill inside the text bounds; the surrounding ring excludes rounded-corner page bleed.
-No qualifying ink is reported as `NO_INK`. Ratios use WCAG relative luminance. The reports preserve the capture hash, launcher/runtime revisions,
-profile, scale, and contrast mode from the capture sidecar.
+`launching` lasts until the fixture socket appears. `app quit` is a clean return, `safe-return` exercises authority ordering, and `app crash` yields a `Crash` receipt. Profiles use pf-sim’s supervisor; a custom profile may select the shell’s desktop-sim supervisor for parity checks.
 
-To add a regression audit, create a TOML recipe under `audits/`. Give it a validated audit
-name, profile, optional scale/contrast, and one or more phases with pinned launcher
-commits. A `scene` phase names exact scene node ids. A `fixture` phase names the
-revision's own fixture (`settings`, `home`, or `sim-frame`) and pixel regions as
-`name/x/y/w/h`; the report records both the mode and exact fixture command. Each phase declares measurable
-expectations (`gap`, `check_status`, `negative_inset`, `all_insets_nonnegative`, or
-`ink_height`); use numeric `eq`, `lt`, `le`, `gt`, or `ge` operators where applicable.
-Run it with `pf-simctl audit run PATH`. The runner builds the pinned source, starts only the
-local headless simulator for scene phases or invokes the pinned binary's revision-native
-renderer for fixture phases. Launcher source is never patched. If no native renderer can
-produce the historical state, use `mode = "unreproducible"` with a reason and
-`historical = true` measurements; a passing post-fix phase then yields `audit_status=partial`.
-## Deterministic session states
+## Scenarios and determinism
 
-Use fixture sessions when a screenshot must capture a state rather than a timing
-accident. `launch ridgeline` deliberately spends 1.5 seconds in `launching` before its
-marker appears; it then stays in-app until an app verb or safe return ends it. Capture
-the launch-dimmed state immediately after launch and poll `app status` for `running`
-before capturing the in-app pattern.
+A scenario TOML has `[scenario]` metadata (`name`, `description`, `profile`, `scale`, `contrast`) and ordered `[[steps]]`. Operations are `profile`, `input`, `text`, `launch`, `safe_return`, `app`, `wait_for`, `capture`, `assert`, and diagnostic-only `sleep`. Predicates cover focus id/label, label presence, route, search query/result count, session/receipt, and app state. Prefer bounded predicates over sleeps. Put profile changes before navigation because they restart the shell.
 
-`app quit` produces a clean return, `safe-return` exercises the authority's graceful
-return path, and `app crash` terminates the fixture by SIGSEGV. The supervisor reports
-running, terminal status, unit inactive, target released, selected owner active, and
-presentation acknowledged in launcher order. Confirm the durable result with
-`history --json`; crash sessions have a `Crash` receipt and safe returns have a
-`Returned` receipt. These controls make launch, dim, in-app, return, and crash frames
-repeatable in both headless and windowed loops.
+```sh
+./pf-simctl scenario validate scenarios/search-filter.toml
+./pf-simctl scenario run scenarios/search-filter.toml --repeat 2
+```
 
-## Scenario files and determinism
+Every step records PNG, scene, timing, output, and errors; aggregate JSON/Markdown reports live under `$PF_SIM_HOME/scenarios/NAME`. Repeat mode fails on raster or semantic nondeterminism.
 
-A scenario is TOML with a `[scenario]` header and ordered `[[steps]]`. Input steps use
-the `input seq` grammar; `wait_for` and `assert` accept `focused_label`, `focused_id`,
-`label_present`, `label_absent`, `route`, `search_query`, `result_count`,
-`session_state`, `last_receipt`, and `app_state` predicates. `wait_for` polls the
-automation idle seam and current scene/session history until its bounded timeout.
-Each `profile` step reseeds state and restarts the shell, so put it before navigation
-and repeat the navigation after every profile change.
+## Product-010 audits and matrix
 
-The shipped preset matrix captures Home rather than Settings. The current gamepad
-contract does not bind the launcher's `Room.next`/`Room.previous` actions, and its
-room-tab nodes are not reachable with the bound directional actions. Extending that
-launcher input contract is deferred; the scenario runner does not invent an
-automation-only route around the user input contract.
+The three committed audits are exact pinned-revision recipes. Their truthful gates are: `home200-footer-overlap=reproduced`, `pill-ink=partial`, and `settings-caption-gap=partial`. Partial means the unmodified historical revision had no native pre-fix renderer while its post-fix fixture reproduced; it is not permission to patch launcher source.
 
-`scenario run FILE --repeat N` starts a replaced headless instance for each run,
-unless `--keep-instance` is requested. Every completed step produces a frame and
-semantic scene in `scenarios/NAME/run-NNN/NN-op/`; `step.json` records timing, output,
-and errors. A failure marks later steps skipped. The root reports include a step table,
-capture hashes, and every discouraged `sleep` step. Repeats are deterministic only
-when the corresponding capture SHA-256 is identical in every run.
+```sh
+./pf-simctl audit run audits/product-010/home200-footer-overlap.toml
+./pf-simctl audit run audits/product-010/pill-ink.toml
+./pf-simctl audit run audits/product-010/settings-caption-gap.toml
+./pf-simctl matrix run audits/product-010/matrix.toml --only scale=200,contrast=hc --repeat 2
+```
+
+The full matrix crosses route, scale, contrast, and profile, producing per-cell captures/measurements plus root JSON, Markdown, and offline HTML. Settings cells are explicit skips: at the pinned launcher revision `Settings.open` and `Room.*` are unbound, so Settings evidence comes only from the pinned `--settings-evidence` fixture. Do not invent a private navigation seam.
+
+## CI
+
+The reusable workflow builds a caller-selected launcher revision, runs scenarios and audits, runs the optionally filtered matrix, and uploads evidence. See [CI integration](ci-integration.md) for the exact launcher PR caller. `scripts/verify-clean-checkout.sh --dry-run` prints the epic checklist; without the flag it clones the current commit into a temporary directory with an empty `PF_SIM_HOME` and prints one final `verify_status=` plus its criterion table.
+
+## Troubleshooting
+
+Every CLI `reason=` belongs to one of these remedies (dynamic suffixes are shown in braces):
+
+| Reason | Fix |
+|---|---|
+| `invalid_{kind}`, `invalid_app_step`, `invalid_audit`, `invalid_audit_expectation`, `invalid_audit_fixture`, `invalid_audit_mode`, `invalid_audit_operator`, `invalid_capture`, `invalid_hook_arguments`, `invalid_hook_command`, `invalid_launcher_rev`, `invalid_matrix`, `invalid_matrix_contrast`, `invalid_matrix_expect`, `invalid_matrix_filter`, `invalid_matrix_measure`, `invalid_matrix_route`, `invalid_matrix_scale`, `invalid_matrix_schema`, `invalid_matrix_skip`, `invalid_matrix_step`, `invalid_pattern`, `invalid_power_profile`, `invalid_predicate`, `invalid_profile_step`, `invalid_repeat`, `invalid_scenario`, `invalid_scenario_profile`, `invalid_scenario_schema`, `invalid_scenario_steps`, `invalid_supervisor`, `invalid_text_scale` | Correct the named CLI value or TOML field; names must match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` and repeats must be positive. |
+| `profile_not_found`, `missing_matrix_route`, `unknown_matrix_{axis}`, `unknown_scenario_op`, `unknown_control`, `unknown_gamepad_command`, `unknown_input_code`, `unbound_action`, `unsupported_binding` | List the committed profiles/inputs, validate the file, and use an action actually bound by the pinned contract. |
+| `device_contract_absent`, `shell_bin_missing`, `authorityd_bin_missing`, `launcher_source_dirty` | Run `toolchain build`; remove uncommitted files from its generated launcher checkout or use a new empty `PF_SIM_HOME`. |
+| `xdg_runtime_dir_missing`, `display_missing`, `weston_died`, `authorityd_died`, `supervisor_died`, `shell_died`, `automation_socket_died` | Set the required display/runtime environment, run `doctor`, then inspect the component log path printed by `up`. |
+| `instance_already_up`, `instance_not_running`, `stale_state`, `stale_marker`, `lock`, `socket` | Use `--replace`, target the right instance, or stop it cleanly. Never delete state outside `PF_SIM_HOME`. |
+| `event_node_timeout`, `event_node_unreadable`, `uinput_sysname_missing`, `gamepad_create_failed`, `gamepad_holder_would_not_stop`, `gamepad_protocol_error`, `holder_token_mismatch` | Run `doctor`; restore uinput and event-node ACLs, then `down --reap-orphans` before retrying. |
+| `automation_down`, `automation_error`, `automation_protocol_error`, `automation_timeout`, `authority_error`, `authority_request_too_large`, `authority_response_too_large`, `authority_truncated_frame` | Check instance status and component logs; restart the instance. Reduce an oversized request rather than bypassing the protocol. |
+| `capture_never_settled`, `capture_frame_drift`, `screenshot_missing` | Check shell/Weston logs and retry from a stable scene. `degraded-authority` normally settles as `content-stable` with `revision_churn=true` because of launcher bug `tsp-cric`; that is not a pf-sim failure. |
+| `assertion_failed`, `predicate_timeout`, `input_not_observed`, `route_mismatch`, `route_reset_failed`, `app_not_running`, `cell_error` | Inspect the step/cell report and scene JSON; correct navigation, expectation, or fixture ordering. |
+| `diff_requires_two_captures`, `diff_size_mismatch` | Supply two captures with identical dimensions. |
+| `headless_input_arrives_in_p2` | Use the gamepad input verbs, or use `key` only in windowed `--no-gamepad` mode. |
+| `unsupported_matrix_jobs` | Use `--jobs 1`; parallel matrix execution is not implemented. |
+
+If `down` says `not_running` but doctor reports `orphaned pf-sim shells=N`, run `./pf-simctl down --reap-orphans`. Reaping matches only `pf-shell --state-dir` paths contained under the current `$PF_SIM_HOME/runs`; it cannot target unrelated shells such as `/home/matt/pf-desktop-test`.
+
+## What pf-sim does not prove
+
+pf-sim is desktop evidence, not device evidence. It does not prove GPU-driver correctness, scanout, frame timing, latency, power behavior, kernel/input-device quirks, memory pressure, thermal behavior, suspend/resume, or performance on the handheld. It does not make an OCI app pass `pocketforge-os/sim`, and it does not supersede the launcher’s authoritative offscreen evidence suite for its covered rendering contracts. The hardware gate remains authoritative for physical-device acceptance.
+
+The Settings fixture proves only the pinned renderer’s evidence surface; it does not prove controller reachability, because Settings is unreachable through the pinned gamepad contract. A deterministic raster proves repeatability of this software path, not equivalence to GPU output or timing on hardware.

@@ -15,6 +15,7 @@ from .gamepad import (
     wait_event_node_readable,
 )
 from .toolchain import manifest_path
+from .backend.desktop import orphan_shell_pids
 
 
 def event_node_access() -> str:
@@ -51,6 +52,7 @@ def checks() -> list[tuple[str, bool, str, bool]]:
         "add your user to the 'input' group, or install the udev rule from "
         "docs/gui-dev-loop.md, or run from a logind seat session (uaccess ACL)"
     )
+    orphans = orphan_shell_pids()
     return [
         ("python >= 3.10", sys.version_info >= (3, 10), "install Python 3.10 or newer", True),
         ("Pillow", importlib.util.find_spec("PIL") is not None, "install python3-pil", True),
@@ -63,6 +65,8 @@ def checks() -> list[tuple[str, bool, str, bool]]:
         (f"event_node_access={access}", event_ok, event_hint, False),
         ("DISPLAY", bool(os.environ.get("DISPLAY")), "export DISPLAY before using --display windowed", False),
         ("toolchain manifest", manifest_path().is_file(), "run ./pf-simctl toolchain build", True),
+        (f"orphaned pf-sim shells={len(orphans)}", not orphans,
+         "run ./pf-simctl down --reap-orphans", True),
     ]
 
 
