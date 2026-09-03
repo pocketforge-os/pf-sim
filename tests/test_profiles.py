@@ -20,9 +20,18 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(prefs["highContrast"], contrast == "hc")
 
     def test_restart_plan(self):
-        self.assertEqual(restart_plan(True, True), ("shell",))
-        self.assertEqual(restart_plan(True, False), ("shell", "supervisor", "authorityd"))
-        self.assertEqual(restart_plan(False, True), ("shell", "supervisor", "authorityd"))
+        expected_restart = ("shell", "supervisor", "authorityd")
+        for old, new, expected in (
+            ("pf-sim", "pf-sim", ("shell",)),
+            ("pf-sim", "shell", expected_restart),
+            ("shell", "pf-sim", expected_restart),
+            ("shell", "shell", ("shell",)),
+        ):
+            with self.subTest(old=old, new=new):
+                self.assertEqual(restart_plan(True, old, True, new), expected)
+
+        self.assertEqual(restart_plan(True, "pf-sim", False, "pf-sim"), expected_restart)
+        self.assertEqual(restart_plan(False, "pf-sim", True, "pf-sim"), expected_restart)
 
     def test_validation_rejection_matrix(self):
         for relative, reason in (("x.running", "stale_marker"), ("x.sock", "socket"), ("x.lock", "lock"), ("pids.json", "stale_marker"), ("authority/sessions/x", "stale_marker")):

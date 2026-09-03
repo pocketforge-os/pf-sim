@@ -9,6 +9,13 @@ from pf_sim.cli import main
 
 
 class CliStatusTests(unittest.TestCase):
+    def test_app_list_does_not_require_running_authority(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}), \
+                patch("pf_sim.cli.AuthorityClient") as client, patch("sys.stdout", new=io.StringIO()) as stdout:
+            self.assertEqual(main(["app", "list"]), 0)
+            self.assertIn("item=ridgeline", stdout.getvalue())
+            client.assert_not_called()
+
     def test_status_exit_code_matrix(self):
         for state, expected in (("up", 0), ("down", 3), ("degraded", 4)):
             result = {"state": state, "components": {n: {"alive": state == "up"} for n in ("weston", "authorityd", "supervisor", "shell")}}

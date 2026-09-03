@@ -150,6 +150,8 @@ def snapshot(name: str, run_dir: Path) -> Profile:
     result = load_profile(target, "home"); validate_profile(result); return result
 
 
-def restart_plan(old_authority: bool, new_authority: bool) -> tuple[str, ...]:
-    if old_authority == new_authority: return ("shell",)
+def restart_plan(old_authority: bool, old_supervisor: str,
+                 new_authority: bool, new_supervisor: str) -> tuple[str, ...]:
+    if old_authority == new_authority and old_supervisor == new_supervisor:
+        return ("shell",)
     return ("shell", "supervisor", "authorityd")

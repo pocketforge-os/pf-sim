@@ -197,7 +197,12 @@ class DesktopBackend(Backend):
         except (FileNotFoundError, json.JSONDecodeError): raise RuntimeError("reason=instance_not_running")
         if self.status(instance)["state"] == "down": raise RuntimeError("reason=instance_not_running")
         records = self._records(path)
-        plan = restart_plan(bool(meta.get("authority", True)), profile.authority)
+        plan = restart_plan(
+            bool(meta.get("authority", True)),
+            str(meta.get("supervisor", "shell")),
+            profile.authority,
+            profile.supervisor,
+        )
         for sig in (signal.SIGTERM, signal.SIGKILL):
             for name in plan:
                 record = records.get(name)

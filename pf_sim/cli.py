@@ -123,6 +123,10 @@ def main(argv=None) -> int:
             elif args.values: raise ValueError("reason=invalid_hook_arguments")
             response = hook(args.run_dir.resolve() / "supervisor.sock", request)
             return 0 if response.get("status") in ("ok", "not_running") else 1
+        if args.command == "app" and args.app_command == "list":
+            items = json.loads((Path(__file__).parent.parent / "fixtures/catalog-snapshot.json").read_text())["items"]
+            print("\n".join(f"item={i['id']} behaviour={fixture_config(i['id'])['behaviour']}" for i in items))
+            return 0
         if args.command in ("launch", "safe-return", "history", "app"):
             path = run_dir(args.instance); client = AuthorityClient(path / "session-authority.sock")
             if args.command == "launch":
@@ -134,9 +138,6 @@ def main(argv=None) -> int:
             entries = client.history()
             if args.command == "history":
                 print(json.dumps(entries, indent=2, sort_keys=True) if args.json else "\n".join(_history_line(e) for e in entries)); return 0
-            if args.app_command == "list":
-                items = json.loads((Path(__file__).parent.parent / "fixtures/catalog-snapshot.json").read_text())["items"]
-                print("\n".join(f"item={i['id']} behaviour={fixture_config(i['id'])['behaviour']}" for i in items)); return 0
             active = next((e for e in reversed(entries) if e.get("receipt") is None), None)
             if active is None: print("app_status=none"); return 3 if args.app_command == "status" else 1
             session = validate_name("session", active["session_id"])
