@@ -148,35 +148,36 @@ class DesktopBackend(Backend):
                 raise RuntimeError(f"reason={label}_bin_missing path={binary}")
         path = run_dir(instance)
         path.mkdir(parents=True, exist_ok=True)
-        pad = None if no_gamepad else gamepad.create(instance)
-        if profile is not None:
-            seed = lambda run: seed_profile(run, profile, scale, contrast)
-        seed_run_dir(path, seed)
-        (path / "logs").mkdir(exist_ok=True)
-        socket_name = f"pf-sim-{instance}"
-        xdg = Path(xdg_value)
-        authority_socket = path / "session-authority.sock"
-        pins = load_pins()
-        metadata = {
-            "instance": instance, "display": display, "launcher_rev": manifest.get("launcher_rev", pins["launcher_rev"]),
-            "runtime_rev": manifest.get("runtime_rev"), "shell_bin": str(shell), "authorityd_bin": str(authority),
-            "shell_sha256": sha256(shell), "authorityd_sha256": sha256(authority),
-            "started_at": datetime.now(timezone.utc).isoformat(), "weston_socket": socket_name,
-            "xdg_runtime_dir": str(xdg),
-            "profile": profile.name if profile else "seeded-default",
-            "scale": scale or (profile.text_scale.removesuffix("%") if profile else "100"),
-            "contrast": contrast or ("hc" if profile and profile.high_contrast else "default"),
-            "authority": profile.authority if profile else True,
-            "shell_extra_args": list(profile.extra_args) if profile else [],
-            "supervisor": profile.supervisor if profile else "shell",
-            "input_source": "wayland-keyboard" if no_gamepad else "evdev",
-            "event_node": None if pad is None else pad["event_node"],
-            "gamepad": None if pad is None else {key: pad.get(key) for key in ("pid", "start_time", "event_node")},
-        }
-        (path / "run.json").write_text(json.dumps(metadata, indent=2) + "\n")
-        records: dict = {}
-        processes = []
+        pad = None
         try:
+            pad = None if no_gamepad else gamepad.create(instance)
+            if profile is not None:
+                seed = lambda run: seed_profile(run, profile, scale, contrast)
+            seed_run_dir(path, seed)
+            (path / "logs").mkdir(exist_ok=True)
+            socket_name = f"pf-sim-{instance}"
+            xdg = Path(xdg_value)
+            authority_socket = path / "session-authority.sock"
+            pins = load_pins()
+            metadata = {
+                "instance": instance, "display": display, "launcher_rev": manifest.get("launcher_rev", pins["launcher_rev"]),
+                "runtime_rev": manifest.get("runtime_rev"), "shell_bin": str(shell), "authorityd_bin": str(authority),
+                "shell_sha256": sha256(shell), "authorityd_sha256": sha256(authority),
+                "started_at": datetime.now(timezone.utc).isoformat(), "weston_socket": socket_name,
+                "xdg_runtime_dir": str(xdg),
+                "profile": profile.name if profile else "seeded-default",
+                "scale": scale or (profile.text_scale.removesuffix("%") if profile else "100"),
+                "contrast": contrast or ("hc" if profile and profile.high_contrast else "default"),
+                "authority": profile.authority if profile else True,
+                "shell_extra_args": list(profile.extra_args) if profile else [],
+                "supervisor": profile.supervisor if profile else "shell",
+                "input_source": "wayland-keyboard" if no_gamepad else "evdev",
+                "event_node": None if pad is None else pad["event_node"],
+                "gamepad": None if pad is None else {key: pad.get(key) for key in ("pid", "start_time", "event_node")},
+            }
+            (path / "run.json").write_text(json.dumps(metadata, indent=2) + "\n")
+            records: dict = {}
+            processes = []
             weston = ["weston", f"--backend={'headless' if display == 'headless' else 'x11'}", "--shell=kiosk-shell.so",
                       "--debug", f"--socket={socket_name}", "--width=1280", "--height=720", "--idle-time=0"]
             if display == "headless":

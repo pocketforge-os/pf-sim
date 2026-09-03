@@ -60,6 +60,16 @@ class DesktopTests(unittest.TestCase):
             self.up()
         self.assertEqual(self.backend.status("default")["state"], "down")
 
+    def test_failure_after_gamepad_creation_destroys_holder(self):
+        pad = {"pid": 123, "start_time": 456, "event_node": "/dev/input/event-test"}
+        with patch("pf_sim.backend.desktop.gamepad.create", return_value=pad), \
+                patch("pf_sim.backend.desktop.gamepad.destroy") as destroy, \
+                patch("pf_sim.backend.desktop.seed_run_dir", side_effect=RuntimeError("seed failed")), \
+                self.assertRaisesRegex(RuntimeError, "seed failed"):
+            self.backend.up(shell_bin=self.bin / "pf-shell", authorityd_bin=self.bin / "pf-session-authorityd")
+        destroy.assert_called_once_with("default")
+        self.assertFalse((self.home / "runs/default/gamepad.json").exists())
+
     def test_up_refuses_when_already_up(self):
         self.up()
         with self.assertRaisesRegex(RuntimeError, "instance_already_up"): self.up()

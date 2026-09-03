@@ -44,14 +44,21 @@ def capture(name: str, instance: str, settle: float = .5, *, raw=False, quiet_ms
     target_dir.mkdir(parents=True, exist_ok=True)
     if not raw:
         client = AutomationClient(run_dir(instance) / "automation.sock")
-        client.wait_idle(quiet_ms, timeout_ms)
-        result = client.capture(target)
-        scene = client.scene()
+        for _attempt in range(3):
+            client.wait_idle(quiet_ms, timeout_ms)
+            result = client.capture(target)
+            scene = client.scene()
+            if (result["frames"], result["revision"]) == (scene["frames"], scene["revision"]):
+                break
+        else:
+            raise RuntimeError("reason=capture_frame_drift")
         scene_path = target.with_suffix(".scene.json")
         scene_path.write_text(json.dumps(scene, indent=2, sort_keys=True) + "\n")
         sidecar = {key: meta.get(key) for key in ("instance", "profile", "scale", "contrast", "launcher_rev", "runtime_rev", "display")}
         sidecar.update(captured_at=datetime.now(timezone.utc).isoformat(), png_sha256=sha256(target),
-                       scene_sha256=sha256(scene_path), frames=result["frames"], revision=result["revision"])
+                       scene_sha256=sha256(scene_path), frames=result["frames"], revision=result["revision"],
+                       capture_frames=result["frames"], capture_revision=result["revision"],
+                       scene_frames=scene["frames"], scene_revision=scene["revision"])
         sidecar["sha256"] = sidecar["png_sha256"]
         target.with_suffix(".json").write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
         return target, sidecar

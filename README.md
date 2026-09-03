@@ -83,8 +83,10 @@ controls and send controller-shaped input with:
 ./pf-simctl input action Move.down --context shell
 ./pf-simctl input seq "east Move.down south"
 ./pf-simctl input action Search.open
-./pf-simctl text e
-./pf-simctl capture search-e
+./pf-simctl text sun
+./pf-simctl capture search-sun
+./pf-simctl text --clear
+./pf-simctl input action Move.down
 ```
 
 The holder owns `/dev/uinput` and serves commands through the instance's `gamepad.sock`; the

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from pf_sim.profiles import effective_prefs, load_profile, restart_plan, sanitize_tree, seed_profile, snapshot, validate_profile
+from pf_sim.profiles import effective_prefs, load_profile, render_power_supply, restart_plan, sanitize_tree, seed_profile, snapshot, validate_profile
 
 
 class ProfileTests(unittest.TestCase):
@@ -32,9 +32,25 @@ class ProfileTests(unittest.TestCase):
         profile = __import__("dataclasses").replace(profile, batteries=({"name":"../bad","capacity":1,"status":"Discharging","scope":"Device"},))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); sentinel = root / "power_supply/keep"; sentinel.mkdir(parents=True)
-            with self.assertRaisesRegex(ValueError, "invalid_power_supply"):
+            with self.assertRaisesRegex(ValueError, "invalid_power_profile field=name"):
                 seed_profile(root, profile)
             self.assertTrue(sentinel.exists())
+
+    def test_missing_capacity_rejected_before_tree_mutation(self):
+        profile = __import__("dataclasses").replace(
+            self.profile, batteries=({"name": "BAT0", "status": "Discharging", "scope": "System"},))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); sentinel = root / "power_supply/keep"; sentinel.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "invalid_power_profile field=capacity battery=BAT0"):
+                render_power_supply(root, profile)
+            self.assertTrue(sentinel.exists())
+
+    def test_invalid_power_scope_rejected_by_profile_validation(self):
+        profile = __import__("dataclasses").replace(
+            self.profile, batteries=({"name": "controller", "capacity": 15,
+                                      "status": "Discharging", "scope": "Wireless"},))
+        with self.assertRaisesRegex(ValueError, "invalid_power_profile field=scope battery=controller"):
+            validate_profile(profile)
 
     def test_restart_plan(self):
         expected_restart = ("shell", "supervisor", "authorityd")

@@ -40,12 +40,13 @@ jobs:
           mkdir -p "$XDG_RUNTIME_DIR"
           ./pf-simctl up --display headless
           ./pf-simctl input action Search.open
-          ./pf-simctl text e
-          ./pf-simctl capture ci-search-e
-          python3 -c 'import json,pathlib; p=pathlib.Path.home()/".local/state/pf-sim/captures/default/ci-search-e.scene.json"; s=json.loads(p.read_text()); assert s["search_query"]=="e"; assert len(s["search_result_ids"]) < len(json.loads(pathlib.Path("fixtures/catalog-snapshot.json").read_text())["items"])'
+          ./pf-simctl text sun
+          ./pf-simctl capture ci-search-sun
+          python3 -c 'import json,pathlib; p=pathlib.Path.home()/".local/state/pf-sim/captures/default/ci-search-sun.scene.json"; s=json.loads(p.read_text()); assert s["search_query"]=="sun"; assert s["search_result_ids"]==["sunwake"]'
+          ./pf-simctl text --clear
           ./pf-simctl input action Move.down
           ./pf-simctl capture ci-moved
-          python3 -c 'import json,pathlib; p=pathlib.Path.home()/".local/state/pf-sim/captures/default"; assert json.loads((p/"ci-search-e.scene.json").read_text())["focused"] != json.loads((p/"ci-moved.scene.json").read_text())["focused"]'
+          python3 -c 'import json,pathlib; p=pathlib.Path.home()/".local/state/pf-sim/captures/default"; assert json.loads((p/"ci-search-sun.scene.json").read_text())["focused"] != json.loads((p/"ci-moved.scene.json").read_text())["focused"]'
           ./pf-simctl capture --repeat 2 ci-det | grep 'deterministic=true'
           ./pf-simctl profile apply controller-battery-low
           ./pf-simctl capture ci-batt

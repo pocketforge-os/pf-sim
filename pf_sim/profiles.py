@@ -45,13 +45,40 @@ def load_profile(path: Path, source: str = "path") -> Profile:
                    tuple(data.get("power", {}).get("batteries", [])))
 
 
+def normalize_batteries(profile: Profile) -> list[dict]:
+    normalized = []
+    required = ("name", "capacity", "status", "scope")
+    valid_statuses = {"Charging", "Discharging", "Full", "Not charging", "Unknown"}
+    valid_scopes = {"System", "Device"}
+    for item in profile.batteries:
+        raw_name = item.get("name", "unknown") if isinstance(item, dict) else "unknown"
+        name = str(raw_name)
+        for field in required:
+            if not isinstance(item, dict) or field not in item:
+                raise ValueError(f"reason=invalid_power_profile field={field} battery={name}")
+        try:
+            validated_name = validate_name("power_supply", name)
+        except ValueError as error:
+            raise ValueError(f"reason=invalid_power_profile field=name battery={name}") from error
+        capacity = item["capacity"]
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or not 0 <= capacity <= 100:
+            raise ValueError(f"reason=invalid_power_profile field=capacity battery={name}")
+        if item["status"] not in valid_statuses:
+            raise ValueError(f"reason=invalid_power_profile field=status battery={name}")
+        if item["scope"] not in valid_scopes:
+            raise ValueError(f"reason=invalid_power_profile field=scope battery={name}")
+        normalized.append({"name": validated_name, "capacity": capacity,
+                           "status": item["status"], "scope": item["scope"]})
+    return normalized
+
+
 def render_power_supply(run_dir: Path, profile: Profile) -> None:
     root = run_dir / "power_supply"
-    batteries = [(validate_name("power_supply", str(item["name"])), item) for item in profile.batteries]
+    batteries = normalize_batteries(profile)
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True)
-    for name, battery in batteries:
-        target = safe_child(root, "power_supply", name)
+    for battery in batteries:
+        target = safe_child(root, "power_supply", battery["name"])
         target.mkdir()
         values = {"type": "Battery", "capacity": int(battery["capacity"]),
                   "status": battery["status"], "scope": battery["scope"]}
@@ -91,8 +118,7 @@ def effective_prefs(profile: Profile, scale: str | None = None, contrast: str | 
 
 def seed_profile(run_dir: Path, profile: Profile, scale: str | None = None, contrast: str | None = None,
                  include_authority: bool = True) -> None:
-    for item in profile.batteries:
-        validate_name("power_supply", str(item["name"]))
+    normalize_batteries(profile)
     state = profile.path / "state"
     if state.is_dir():
         for item in state.iterdir():
@@ -111,8 +137,7 @@ def seed_profile(run_dir: Path, profile: Profile, scale: str | None = None, cont
 def validate_profile(profile: Profile) -> None:
     if profile.supervisor not in ("pf-sim", "shell"):
         raise ValueError("reason=invalid_supervisor")
-    for item in profile.batteries:
-        validate_name("power_supply", str(item["name"]))
+    normalize_batteries(profile)
     state = profile.path / "state"
     if not state.exists(): return
     for path in state.rglob("*"):

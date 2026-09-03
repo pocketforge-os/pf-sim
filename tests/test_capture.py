@@ -28,6 +28,40 @@ class CaptureTests(unittest.TestCase):
             self.assertTrue(png.with_suffix(".scene.json").exists())
             self.assertEqual((sidecar["frames"], sidecar["revision"]), (7, 4))
 
+    def test_frame_drift_retries_and_converges(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs/default"; run.mkdir(parents=True)
+            run.joinpath("run.json").write_text('{"instance":"default"}')
+            client = Mock()
+            def write_capture(path):
+                Path(path).write_bytes(b"png")
+                return {"frames": 7, "revision": 4}
+            client.capture.side_effect = write_capture
+            client.scene.side_effect = [
+                {"frames": 8, "revision": 5, "scene": {}},
+                {"frames": 7, "revision": 4, "scene": {}},
+            ]
+            with patch.dict(os.environ, {"PF_SIM_HOME": tmp}), patch("pf_sim.capture.AutomationClient", return_value=client):
+                _, sidecar = capture("shot", "default")
+            self.assertEqual(client.wait_idle.call_count, 2)
+            self.assertEqual(client.capture.call_count, 2)
+            self.assertEqual(sidecar["capture_revision"], sidecar["scene_revision"])
+
+    def test_frame_drift_fails_after_three_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "runs/default"; run.mkdir(parents=True)
+            run.joinpath("run.json").write_text('{"instance":"default"}')
+            client = Mock()
+            def write_capture(path):
+                Path(path).write_bytes(b"png")
+                return {"frames": 7, "revision": 4}
+            client.capture.side_effect = write_capture
+            client.scene.return_value = {"frames": 8, "revision": 5, "scene": {}}
+            with patch.dict(os.environ, {"PF_SIM_HOME": tmp}), patch("pf_sim.capture.AutomationClient", return_value=client):
+                with self.assertRaisesRegex(RuntimeError, "reason=capture_frame_drift"):
+                    capture("shot", "default")
+            self.assertEqual(client.capture.call_count, 3)
+
     def test_headless_capture_and_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); run = root / "runs/default"; run.mkdir(parents=True)

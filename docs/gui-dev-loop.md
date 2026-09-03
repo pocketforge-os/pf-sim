@@ -8,8 +8,10 @@ The complete GUI workflow will land in P5. For now, the desktop simulator lifecy
 ./pf-simctl up --display headless
 ./pf-simctl profile apply seeded-default --scale 150 --contrast default
 ./pf-simctl input action Search.open
-./pf-simctl text e
+./pf-simctl text sun
 ./pf-simctl capture current-screen
+./pf-simctl text --clear
+./pf-simctl input action Move.down
 ./pf-simctl status --json
 ./pf-simctl down
 ```
