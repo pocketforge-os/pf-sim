@@ -18,6 +18,23 @@ The complete GUI workflow will land in P5. For now, the desktop simulator lifecy
 
 Use `--display windowed` from a desktop session when interactive viewing is needed.
 
+## Product-010 capture matrix
+
+Use the committed matrix instead of hand-seeding state or writing one-off pixel scripts:
+
+```sh
+./pf-simctl matrix run audits/product-010/matrix.toml
+./pf-simctl matrix run audits/product-010/matrix.toml --only profile=seeded-default
+```
+
+The runner starts each profile/scale/contrast preset once, drives only launcher-bound
+scenario inputs, captures and measures every applicable route, and emits linked Markdown,
+JSON, and offline HTML indexes. Settings is recorded as an explicit contract-unreachable
+skip at the pinned launcher revision; first-run is explicitly skipped for other profiles.
+Open the generated `index.html` for the thumbnail grid and follow its overlays to inspect
+node bounds. Use `--repeat 2` when checking raster determinism and `--no-fail` only when a
+report is required despite known measurement failures.
+
 The simulator user must be able to read the udev-created `/dev/input/event*` node. A
 desktop login normally grants this through systemd-logind's `uaccess` ACL. When running
 outside a logind seat session, add the user to the `input` group and start a new login

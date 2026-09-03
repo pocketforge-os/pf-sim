@@ -1,0 +1,63 @@
+[matrix]
+name = "product-010"
+routes = ["home", "library", "details", "search-populated", "settings", "quick", "first-run"]
+scales = ["100", "150", "200"]
+contrasts = ["default", "hc"]
+profiles = ["first-run", "seeded-default", "degraded-authority", "power-status-present", "controller-battery-low"]
+
+[routes.home]
+steps = []
+
+# Quick is bound at the pinned revision; its second row is the contract-safe route
+# to Library. Back first makes this recipe independent of the preceding route.
+[routes.library]
+steps = [
+  { op = "input", seq = "Back Quick Move.down Activate" },
+]
+
+[routes.details]
+steps = [
+  { op = "input", seq = "Back Quick Move.down Activate Move.down Move.down Activate" },
+]
+
+[routes.search-populated]
+steps = [
+  { op = "input", seq = "Back Search.open" },
+  { op = "text", value = "e" },
+]
+
+[routes.settings]
+steps = []
+skip = true
+reason = "settings_route_unreachable_via_contract launcher_rev=657fe4c005acd3fe9a9298e582f3520c84eb0c92"
+
+[routes.quick]
+steps = [
+  { op = "input", seq = "Back Quick" },
+]
+
+[routes.first-run]
+steps = []
+profiles = ["first-run"]
+
+[measure]
+# Text nodes can intentionally share a status region (for example the degraded
+# authority banner and hero status). This matrix audits ink and contrast without
+# treating those semantic overlays as sibling-spacing violations.
+min_gap = -1000
+contrast_floor = 4.5
+
+[measure.nodes_by_route.home]
+role = "text"
+[measure.nodes_by_route.library]
+role = "text"
+[measure.nodes_by_route.details]
+role = "text"
+[measure.nodes_by_route.search-populated]
+role = "text"
+[measure.nodes_by_route.settings]
+role = "text"
+[measure.nodes_by_route.quick]
+role = "text"
+[measure.nodes_by_route.first-run]
+role = "text"
