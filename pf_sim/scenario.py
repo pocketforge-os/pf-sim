@@ -16,6 +16,7 @@ from .authority import AuthorityClient
 from .backend import DesktopBackend
 from .config import run_dir, safe_child, sim_home, validate_name
 from .fixture_app import send_command
+from .scene import route
 
 
 OPS = {"profile", "input", "text", "launch", "safe_return", "app", "wait_for", "capture", "assert", "sleep"}
@@ -48,6 +49,8 @@ def load(path: str | Path) -> Scenario:
     header = document.get("scenario")
     if top or not isinstance(header, dict) or set(header) != {"name", "description", "profile", "scale", "contrast"}:
         raise ValueError("reason=invalid_scenario_schema")
+    for field in ("name", "description", "profile", "scale", "contrast"):
+        _expect_type(header[field], str, f"scenario.{field}", "string")
     name = validate_name("scenario", header["name"])
     validate_name("profile", header["profile"])
     if header["scale"] not in profiles.SCALES or header["contrast"] not in ("default", "hc"):
@@ -55,18 +58,35 @@ def load(path: str | Path) -> Scenario:
     steps = document.get("steps")
     if not isinstance(steps, list) or not steps:
         raise ValueError("reason=invalid_scenario_steps")
-    for step in steps:
-        _validate_step(step)
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise ValueError(f"reason=invalid_scenario field=steps[{index}] expected=table")
+        _validate_step(step, index)
     return Scenario(name, header["description"], header["profile"], header["scale"], header["contrast"], steps, path)
 
 
-def _validate_step(step: dict) -> None:
-    if not isinstance(step, dict) or not isinstance(step.get("op"), str) or step["op"] not in OPS:
+def _expect_type(value: object, expected: type, field: str, label: str) -> None:
+    if not isinstance(value, expected):
+        raise ValueError(f"reason=invalid_scenario field={field} expected={label}")
+
+
+def _validate_step(step: dict, index: int = 0) -> None:
+    if "op" in step:
+        _expect_type(step["op"], str, f"steps[{index}].op", "string")
+    if step.get("op") not in OPS:
         raise ValueError("reason=unknown_scenario_op")
     op = step["op"]
     required = FIELDS[op] - ({"code"} if op == "app" else {"timeout_ms"} if op == "wait_for" else set())
     if set(step) - ({"op"} | FIELDS[op]) or not required <= set(step):
         raise ValueError(f"reason=invalid_{op}_step")
+    string_fields = {
+        "profile": ("name", "scale", "contrast"), "input": ("seq",),
+        "text": ("value",), "launch": ("item",), "app": ("verb",),
+        "wait_for": ("predicate",), "capture": ("name",),
+        "assert": ("predicate",),
+    }
+    for field in string_fields.get(op, ()):
+        _expect_type(step[field], str, f"steps[{index}].{field}", "string")
     if "predicate" in step:
         predicates.parse(step["predicate"])
     if op == "profile":
@@ -108,7 +128,9 @@ class LiveBackend:
     def observe(self):
         ping = self.automation.ping(); history = self.authority.history()
         self._add_session_state(ping, history)
-        return self.automation.scene(), history, ping
+        scene = self.automation.scene()
+        scene.setdefault("route", route(scene))
+        return scene, history, ping
 
     def _add_session_state(self, ping, history):
         active = next((entry for entry in reversed(history) if not entry.get("receipt")), None)
@@ -169,6 +191,7 @@ class LiveBackend:
             if "timeout" not in str(error): raise
         response = self.automation.capture(png)
         scene = self.automation.scene()
+        scene.setdefault("route", route(scene))
         png.with_name("scene.json").write_text(json.dumps(scene, indent=2, sort_keys=True) + "\n")
         return {"sha256": hashlib.sha256(png.read_bytes()).hexdigest(), **response}
 
@@ -213,7 +236,7 @@ def run(scenario: Scenario, repeat: int = 1, out: Path | None = None, instance: 
     passed = all(run["status"] == "pass" for run in runs)
     report = {"scenario": scenario.name, "description": scenario.description, "status": "pass" if passed else "fail",
               "deterministic": deterministic, "runs": runs, "smells": [i+1 for i, step in enumerate(scenario.steps) if step["op"] == "sleep"]}
-    (root / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    (root / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n")
     (root / "report.md").write_text(render_report(report))
     return (0 if passed and deterministic else 1), report, root
 

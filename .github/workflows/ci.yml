@@ -68,19 +68,6 @@ jobs:
           python3 -c 'from pathlib import Path; from PIL import Image; from pf_sim.capture import is_blank,sha256; p=Path.home()/".local/state/pf-sim/captures/default"; f=[p/("ci-"+n+".png") for n in ("first-run","seeded-default","degraded-authority")]; assert all(Image.open(x).size==(1280,720) and not is_blank(x) for x in f); assert sha256(f[0]) != sha256(f[1])'
           ./pf-simctl status --json
           ./pf-simctl down
-      - name: Deterministic scenarios
-        env:
-          XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
-        run: |
-          mkdir -p "$XDG_RUNTIME_DIR"
-          for file in scenarios/*.toml; do ./pf-simctl scenario run "$file" --repeat 2; done
-      - name: Upload scenario evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: scenario-evidence
-          path: ~/.local/state/pf-sim/scenarios
-          if-no-files-found: error
           ./pf-simctl up --display headless --profile seeded-default
           ./pf-simctl launch ridgeline
           for n in $(seq 1 50); do ./pf-simctl app status | grep -q 'app_status=running' && break; sleep .1; done
@@ -94,6 +81,19 @@ jobs:
           for n in $(seq 1 50); do ./pf-simctl history | grep -q 'Returned' && break; sleep .1; done
           ./pf-simctl history | grep 'Returned'
           ./pf-simctl down
+      - name: Deterministic scenarios
+        env:
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          for file in scenarios/*.toml; do ./pf-simctl scenario run "$file" --repeat 2; done
+      - name: Upload scenario evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: scenario-evidence
+          path: ~/.local/state/pf-sim/scenarios
+          if-no-files-found: error
       - name: Dump simulator failure evidence
         if: failure()
         run: |

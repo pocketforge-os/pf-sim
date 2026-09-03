@@ -123,6 +123,10 @@ Generated evidence lives under `$PF_SIM_HOME/scenarios/SCENARIO/`: each run has 
 directory per step containing its PNG, `scene.json`, and `step.json`, with aggregate
 `report.json` and `report.md` files at the scenario root. `sleep` is supported for
 diagnostics but is called out as a report smell; prefer `wait_for` predicates.
+Profile steps restart and reseed the shell; place them before navigation and repeat
+navigation after each profile change. `home-matrix.toml` covers all six visual presets
+on the gamepad-reachable Home route. Settings is not currently reachable through the
+launcher's bound gamepad contract, so the runner does not use a private shortcut.
 ## Fixture apps and sessions
 
 Every shipped profile uses pf-sim's session supervisor by default. Launch a deterministic

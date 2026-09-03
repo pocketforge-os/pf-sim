@@ -26,6 +26,14 @@ def focused_id(scene_json: dict):
     return scene_json.get("focused")
 
 
+def route(scene_json: dict):
+    for node in iter_nodes(scene_json):
+        node_id = node.get("id", "")
+        if node_id.startswith("room-") and node_id.endswith("-underline"):
+            return node_id.removeprefix("room-").removesuffix("-underline").title()
+    return scene_json.get("route")
+
+
 def node_bounds(node: dict):
     bounds = node.get("bounds")
     if isinstance(bounds, dict):
