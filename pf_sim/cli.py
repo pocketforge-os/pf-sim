@@ -4,9 +4,10 @@ import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 from .backend import DesktopBackend
-from .config import run_dir, validate_instance
+from .config import run_dir, validate_instance, validate_name
 from . import capture, doctor, keys, profiles, toolchain
 
 
@@ -59,6 +60,18 @@ def main(argv=None) -> int:
             print(str(error), file=sys.stderr)
             return 2
     try:
+        if args.command == "capture":
+            validate_name("capture", args.name)
+        elif args.command == "profile" and args.profile_command in ("show", "apply", "snapshot"):
+            validate_name("profile", args.name)
+        elif args.command == "profile" and args.profile_command == "validate" and not Path(args.name).is_dir():
+            validate_name("profile", args.name)
+        elif args.command == "up":
+            validate_name("profile", args.profile)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    try:
         if args.command == "doctor": return doctor.run()
         if args.command == "toolchain":
             if args.toolchain_command == "build":
@@ -74,7 +87,7 @@ def main(argv=None) -> int:
             if args.profile_command == "show":
                 p = profiles.resolve_profile(args.name); print(json.dumps({"name": p.name, "description": p.description, "source": p.source, "authority": p.authority, "text_scale": p.text_scale, "high_contrast": p.high_contrast, "first_run_complete": p.first_run_complete}, indent=2)); return 0
             if args.profile_command == "validate":
-                profiles.validate_profile(profiles.resolve_profile(args.name)); print(f"validate_status=ok profile={args.name}"); return 0
+                profiles.validate_profile(profiles.resolve_profile(args.name, allow_path=True)); print(f"validate_status=ok profile={args.name}"); return 0
             if args.profile_command == "snapshot":
                 p = profiles.snapshot(args.name, run_dir(args.instance)); print(f"snapshot_status=ok profile={p.name} path={p.path}"); return 0
             p = profiles.resolve_profile(args.name); impl = backend("desktop"); impl.apply(args.instance, p, args.scale, args.contrast)

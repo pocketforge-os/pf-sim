@@ -1,9 +1,10 @@
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from pf_sim.profiles import effective_prefs, load_profile, restart_plan, sanitize_tree, snapshot, validate_profile
+from pf_sim.profiles import effective_prefs, load_profile, restart_plan, sanitize_tree, seed_profile, snapshot, validate_profile
 
 
 class ProfileTests(unittest.TestCase):
@@ -38,3 +39,60 @@ class ProfileTests(unittest.TestCase):
             (root / "shell/x.lock").touch(); (root / "authority/sessions/x.running").touch()
             sanitize_tree(root)
             self.assertFalse(any(p.name.endswith((".lock", ".running")) for p in root.rglob("*")))
+
+    def _snapshot_run(self, root, *, profile, authority, prefs):
+        run = root / "runs/default"
+        (run / "shell").mkdir(parents=True)
+        (run / "run.json").write_text(json.dumps({
+            "profile": profile, "authority": authority,
+            "scale": "150", "contrast": "hc",
+        }))
+        if prefs is not None:
+            (run / "shell/prefs.json").write_text(json.dumps(prefs))
+        return run
+
+    def test_snapshot_preserves_live_prefs_when_reseeded(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            prefs = {"schemaVersion": 2, "firstRunComplete": True, "textScale": "150%", "highContrast": True}
+            profile = snapshot("snap150", self._snapshot_run(root, profile="seeded-default", authority=True, prefs=prefs))
+            reapplied = root / "reapplied"
+            seed_profile(reapplied, profile)
+            self.assertEqual(json.loads((reapplied / "shell/prefs.json").read_text()), prefs)
+            self.assertIn("seeded-default at scale=150 contrast=hc", profile.description)
+
+    def test_snapshot_preserves_first_run_and_degraded_authority(self):
+        for source, authority, prefs in (("first-run", True, None), ("degraded-authority", False, {
+            "schemaVersion": 2, "firstRunComplete": True, "textScale": "100%", "highContrast": False,
+        })):
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+                root = Path(tmp)
+                profile = snapshot("saved", self._snapshot_run(root, profile=source, authority=authority, prefs=prefs))
+                self.assertEqual(profile.authority, authority)
+                reapplied = root / "reapplied"
+                seed_profile(reapplied, profile)
+                self.assertEqual((reapplied / "shell/prefs.json").exists(), prefs is not None)
+
+    def test_snapshot_rejects_unsafe_names_before_mutation(self):
+        for name in ("/tmp/x", "../../x", "a/b"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+                root = Path(tmp)
+                run = self._snapshot_run(root, profile="seeded-default", authority=True, prefs=None)
+                sentinel = root.parent / "x"
+                sentinel.mkdir(exist_ok=True)
+                marker = sentinel / "sentinel"
+                marker.write_text("keep")
+                try:
+                    with self.assertRaisesRegex(ValueError, "reason=invalid_profile"):
+                        snapshot(name, run)
+                    self.assertEqual(marker.read_text(), "keep")
+                finally:
+                    marker.unlink(missing_ok=True)
+                    sentinel.rmdir()
+
+    def test_snapshot_accepts_valid_names(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            run = self._snapshot_run(root, profile="first-run", authority=True, prefs=None)
+            for name in ("snap", "snap-1", "snap.v2", "snap_name"):
+                self.assertEqual(snapshot(name, run).name, name)

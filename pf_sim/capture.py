@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .config import run_dir, sim_home
+from .config import run_dir, safe_child, sim_home
 
 
 def sha256(png: str | Path) -> str:
@@ -34,9 +34,15 @@ def _xwd_to_png(source: Path, target: Path) -> None:
 
 
 def capture(name: str, instance: str, settle: float = .5) -> tuple[Path, dict]:
+    target_dir = safe_child(sim_home() / "captures", "instance", instance)
+    validated_target = safe_child(target_dir, "capture", name)
+    target = validated_target.parent / f"{validated_target.name}.png"
+    # The suffix operation must not weaken the direct-child containment invariant.
+    if not target.resolve().is_relative_to(target_dir.resolve()):
+        raise ValueError("reason=invalid_capture")
     meta = json.loads((run_dir(instance) / "run.json").read_text())
-    target_dir = sim_home() / "captures" / instance; target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{name}.png"; time.sleep(settle)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    time.sleep(settle)
     with tempfile.TemporaryDirectory() as temporary:
         cwd = Path(temporary)
         if meta["display"] == "headless":
