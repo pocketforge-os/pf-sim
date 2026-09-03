@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance
-from . import doctor, toolchain
+from . import capture, doctor, keys, profiles, toolchain
 
 
 def backend(name: str):
@@ -26,12 +27,26 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--replace", action="store_true")
             command.add_argument("--shell-bin")
             command.add_argument("--authorityd-bin")
+            command.add_argument("--profile", default="seeded-default")
+            command.add_argument("--scale", choices=profiles.SCALES)
+            command.add_argument("--contrast", choices=("default", "hc"))
         if name == "status": command.add_argument("--json", action="store_true")
     tools = commands.add_parser("toolchain").add_subparsers(dest="toolchain_command", required=True)
     build = tools.add_parser("build"); build.add_argument("--force", action="store_true")
     build.add_argument("--backend", choices=["desktop"], default="desktop")
     status = tools.add_parser("status"); status.add_argument("--json", action="store_true")
     status.add_argument("--backend", choices=["desktop"], default="desktop")
+    profile = commands.add_parser("profile").add_subparsers(dest="profile_command", required=True)
+    listing = profile.add_parser("list"); listing.add_argument("--json", action="store_true")
+    show = profile.add_parser("show"); show.add_argument("name")
+    validate = profile.add_parser("validate"); validate.add_argument("name")
+    apply = profile.add_parser("apply"); apply.add_argument("name"); apply.add_argument("--instance", default="default")
+    apply.add_argument("--scale", choices=profiles.SCALES); apply.add_argument("--contrast", choices=("default", "hc"))
+    snapshot = profile.add_parser("snapshot"); snapshot.add_argument("name"); snapshot.add_argument("--instance", default="default")
+    cap = commands.add_parser("capture", help="raw, non-frame-synchronized P1 capture")
+    cap.add_argument("name"); cap.add_argument("--instance", default="default"); cap.add_argument("--settle", type=float, default=.5)
+    key = commands.add_parser("key", help="raw windowed keyboard fallback")
+    key.add_argument("keysyms", nargs="+"); key.add_argument("--instance", default="default"); key.add_argument("--delay", type=float, default=.35)
     return root
 
 
@@ -52,9 +67,36 @@ def main(argv=None) -> int:
             if manifest is None:
                 print("toolchain_status=absent", file=sys.stderr); return 3
             print(json.dumps(manifest, indent=2 if args.json else None, sort_keys=True)); return 0
+        if args.command == "profile":
+            if args.profile_command == "list":
+                items = [{"name": p.name, "description": p.description, "source": p.source} for p in profiles.list_profiles()]
+                print(json.dumps(items, indent=2) if args.json else "\n".join(f"profile={p['name']} source={p['source']} description={p['description']}" for p in items)); return 0
+            if args.profile_command == "show":
+                p = profiles.resolve_profile(args.name); print(json.dumps({"name": p.name, "description": p.description, "source": p.source, "authority": p.authority, "text_scale": p.text_scale, "high_contrast": p.high_contrast, "first_run_complete": p.first_run_complete}, indent=2)); return 0
+            if args.profile_command == "validate":
+                profiles.validate_profile(profiles.resolve_profile(args.name)); print(f"validate_status=ok profile={args.name}"); return 0
+            if args.profile_command == "snapshot":
+                p = profiles.snapshot(args.name, run_dir(args.instance)); print(f"snapshot_status=ok profile={p.name} path={p.path}"); return 0
+            p = profiles.resolve_profile(args.name); impl = backend("desktop"); impl.apply(args.instance, p, args.scale, args.contrast)
+            effective = profiles.effective_prefs(p, args.scale, args.contrast)
+            scale = (effective or {"textScale": p.text_scale})["textScale"].removesuffix("%")
+            contrast = "hc" if (effective or {}).get("highContrast", p.high_contrast) else "default"
+            print(f"apply_status=applied profile={p.name} scale={scale} contrast={contrast}"); return 0
+        if args.command == "capture":
+            path, sidecar = capture.capture(args.name, args.instance, args.settle)
+            print(f"capture_status=ok path={path} sha256={sidecar['sha256']}"); return 0
+        if args.command == "key":
+            try: keys.send(args.keysyms, args.instance, args.delay)
+            except RuntimeError as error:
+                if str(error) == "reason=headless_input_arrives_in_p2":
+                    print("key_status=unsupported reason=headless_input_arrives_in_p2"); return 2
+                raise
+            print(f"key_status=ok count={len(args.keysyms)}"); return 0
         impl = backend(args.backend)
         if args.command == "up":
-            path = impl.up(instance=args.instance, display=args.display, replace=args.replace, shell_bin=args.shell_bin, authorityd_bin=args.authorityd_bin)
+            selected = profiles.resolve_profile(args.profile)
+            path = impl.up(instance=args.instance, display=args.display, replace=args.replace, shell_bin=args.shell_bin, authorityd_bin=args.authorityd_bin,
+                           profile=selected, scale=args.scale, contrast=args.contrast)
             print(f"up_status=ready instance={args.instance} display={args.display} run_dir={path} weston_socket=pf-sim-{args.instance}")
             return 0
         if args.command == "down":
@@ -63,11 +105,12 @@ def main(argv=None) -> int:
         result = impl.status(args.instance)
         print(json.dumps(result, indent=2, sort_keys=True) if args.json else " ".join([f"status={result['state']}", f"instance={args.instance}"] + [f"{n}={'alive' if v['alive'] else 'dead'}" for n, v in result['components'].items()]))
         return {"up": 0, "down": 3, "degraded": 4}[result["state"]]
-    except RuntimeError as error:
+    except (RuntimeError, ValueError, FileNotFoundError, subprocess.CalledProcessError) as error:
         reason = str(error)
         hint = ""
         if "_died" in reason and args.command == "up":
             component = reason.split("reason=", 1)[-1].removesuffix("_died")
             hint = f" hint={run_dir(args.instance) / 'logs' / (component + '.log')}"
-        print(f"up_status=failed {reason}{hint}", file=sys.stderr)
+        prefix = "up_status=failed" if args.command == "up" else "command_status=failed"
+        print(f"{prefix} {reason}{hint}", file=sys.stderr)
         return 1

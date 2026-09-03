@@ -1,0 +1,11 @@
+[profile]
+name = "first-run"
+description = "Fresh shell state showing the first-run flow"
+[stack]
+authority = true
+[shell]
+extra_args = []
+[prefs]
+text_scale = "100%"
+high_contrast = false
+first_run_complete = false

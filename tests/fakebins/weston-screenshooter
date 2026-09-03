@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+from PIL import Image, ImageDraw
+image = Image.new("RGB", (1280, 720), "navy")
+ImageDraw.Draw(image).rectangle((20, 20, 300, 160), fill="orange")
+image.save("wayland-screenshot-1.png")

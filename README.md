@@ -36,10 +36,30 @@ toolchain, and start a fresh headless instance:
 Set `PF_SIM_HOME` to relocate machine-local state (the default is
 `~/.local/state/pf-sim`). Use `--display windowed` when `DISPLAY` is available.
 
+## Profiles
+
+Committed profiles make first-run, normal seeded, and unavailable-authority states repeatable
+without navigating the Settings UI. The default is `seeded-default`:
+
+```sh
+./pf-simctl profile list
+./pf-simctl profile show first-run
+./pf-simctl profile apply first-run
+./pf-simctl profile apply seeded-default --scale 200 --contrast hc
+./pf-simctl capture seeded-200-hc
+```
+
+`--scale 100|150|200` and `--contrast default|hc` compose with every profile. This provides all
+six visual presets by deterministic state writes rather than keying through Settings. `profile
+snapshot NAME` saves sanitized state under `$PF_SIM_HOME/profiles/NAME`; `profile validate
+NAME_OR_PATH` rejects live markers, sockets, and locks. `capture` is raw and not frame-synchronized.
+The raw `key KEYSYM...` fallback works only for windowed Weston; controller input arrives in P2.
+
 ## Layout
 
 - `pf_sim/` contains the CLI, lifecycle supervisor, backend abstraction, and toolchain builder.
 - `pins.toml` is the source-of-truth launcher revision; the runtime revision is derived from it.
 - `fixtures/` contains simulator-owned catalog data.
+- `profiles/` contains committed state-only simulator profiles.
 - `tests/` contains hermetic `unittest` coverage and fake lifecycle components.
-- `$PF_SIM_HOME/toolchain/` and `$PF_SIM_HOME/runs/` hold generated binaries and run state.
+- `$PF_SIM_HOME/` holds generated binaries, run state, snapshots, and captures.

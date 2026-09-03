@@ -1,0 +1,11 @@
+[profile]
+name = "degraded-authority"
+description = "Shell booted while session authority is unavailable"
+[stack]
+authority = false
+[shell]
+extra_args = []
+[prefs]
+text_scale = "100%"
+high_contrast = false
+first_run_complete = true
