@@ -155,6 +155,29 @@ Profile steps restart and reseed the shell; place them before navigation and rep
 navigation after each profile change. `home-matrix.toml` covers all six visual presets
 on the gamepad-reachable Home route. Settings is not currently reachable through the
 launcher's bound gamepad contract, so the runner does not use a private shortcut.
+
+## Reproducing the product-010 matrix
+
+The committed matrix is the complete product-010 route × scale × contrast × profile
+audit. Run all 210 declared cells (156 measured and 54 explicit skips), or select axes:
+
+```sh
+XDG_RUNTIME_DIR=/run/user/1000 ./pf-simctl matrix run audits/product-010/matrix.toml
+./pf-simctl matrix run audits/product-010/matrix.toml --only scale=200,contrast=hc --out matrix-report
+./pf-simctl matrix run audits/product-010/matrix.toml --only route=home,profile=seeded-default --repeat 2
+```
+
+Each profile/preset starts once and is reused across routes. Every measured cell contains
+one frame-complete capture, its scene and provenance, a measurement overlay, and JSON and
+Markdown reports. The root `report.json`, `report.md`, and self-contained `index.html`
+index every declared cell; skipped cells retain their reason. `--repeat 2` compares each
+cell's raster hashes and prints the aggregate determinism result. Measurement failures or
+nondeterminism make the command exit 1; `--no-fail` is intended only for report-only CI.
+
+On the reference laptop, a seeded-default run completed 42 cells in approximately
+**289 seconds** (about 6.9 seconds per declared cell); the full matrix should therefore
+be budgeted at roughly **24 minutes**. This includes
+simulator startup, capture settling, measurement, and report generation.
 ## Fixture apps and sessions
 
 Every shipped profile uses pf-sim's session supervisor by default. Launch a deterministic

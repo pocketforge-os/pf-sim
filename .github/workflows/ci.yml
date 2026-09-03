@@ -76,6 +76,21 @@ jobs:
         run: |
           mkdir -p "$XDG_RUNTIME_DIR"
           for file in scenarios/*.toml; do ./pf-simctl scenario run "$file" --repeat 2; done
+      - name: Reduced product-010 matrix
+        env:
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          ./pf-simctl matrix run audits/product-010/matrix.toml --only scale=200,contrast=hc --out matrix-report
+          test -s matrix-report/report.json
+          test -s matrix-report/index.html
+      - name: Upload matrix report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: product-010-matrix
+          path: matrix-report
+          if-no-files-found: error
       - name: Upload scenario evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

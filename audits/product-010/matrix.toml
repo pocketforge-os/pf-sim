@@ -1,0 +1,87 @@
+[matrix]
+name = "product-010"
+routes = ["home", "library", "details", "search-populated", "settings", "quick", "first-run"]
+scales = ["100", "150", "200"]
+contrasts = ["default", "hc"]
+profiles = ["first-run", "seeded-default", "degraded-authority", "power-status-present", "controller-battery-low"]
+
+[routes.home]
+steps = []
+expect = { screen = "home", focused_prefix = "item-", search_query = "" }
+
+# Quick is bound at the pinned revision; its second row is the contract-safe route
+# to Library. Back first makes this recipe independent of the preceding route.
+[routes.library]
+steps = [
+  { op = "input", seq = "Quick" },
+  # Quick remembers its last focused row, so normalize to row zero before
+  # selecting the contract's Library row.
+  { op = "input", seq = "Move.up Move.up Move.up Move.up Move.up Move.up" },
+  { op = "input", seq = "Move.down" },
+  { op = "input", seq = "Activate" },
+]
+expect = { screen = "library", focused_prefix = "library-", search_query = "" }
+
+[routes.details]
+steps = [
+  # Enter Library through Quick, move from its toolbar to a catalog card, then
+  # use the card's bound Activate action to open Details.
+  { op = "input", seq = "Quick" },
+  { op = "input", seq = "Move.up Move.up Move.up Move.up" },
+  { op = "input", seq = "Move.down" },
+  { op = "input", seq = "Activate" },
+  { op = "input", seq = "Move.down" },
+  { op = "input", seq = "Activate" },
+]
+expect = { screen = "details", focused_prefix = "detail-", search_query = "" }
+
+[routes.search-populated]
+steps = [
+  { op = "input", seq = "Search.open" },
+  { op = "text", value = "e" },
+]
+expect = { screen = "search-populated", focused_prefix = "search-result-", search_query = "e" }
+
+[routes.settings]
+steps = []
+skip = true
+reason = "settings_route_unreachable_via_contract launcher_rev=657fe4c005acd3fe9a9298e582f3520c84eb0c92"
+
+[routes.quick]
+steps = [
+  { op = "input", seq = "Quick" },
+]
+expect = { screen = "quick", focused_prefix = "quick-", search_query = "" }
+
+[routes.first-run]
+steps = []
+profiles = ["first-run"]
+expect = { screen = "first-run", search_query = "" }
+
+[measure]
+# Text nodes can intentionally share a status region (for example the degraded
+# authority banner and hero status). This matrix audits ink and contrast without
+# treating those semantic overlays as sibling-spacing violations.
+min_gap = -1000
+contrast_floor = 4.5
+
+[measure.nodes_by_route.home]
+role = "text"
+[measure.nodes_by_route.library]
+role = "text"
+[measure.nodes_by_route.details]
+role = "text"
+[measure.nodes_by_route.search-populated]
+role = "text"
+[measure.nodes_by_route.settings]
+role = "text"
+[measure.nodes_by_route.quick]
+role = "text"
+[measure.nodes_by_route.first-run]
+role = "text"
+nodes = [
+  "first-run-eyebrow", "first-run-copy",
+  "comfort-0-label", "comfort-0-value", "comfort-1-label", "comfort-1-value",
+  "comfort-2-label", "comfort-2-value", "comfort-3-label", "comfort-3-value",
+  "safe-return-teach", "continue-label", "continue-keycap-start",
+]

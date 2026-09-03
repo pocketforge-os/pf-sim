@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
-from . import audit, capture, doctor, gamepad, inputs, keys, profiles, scenario, toolchain
+from . import audit, capture, doctor, gamepad, inputs, keys, matrix, profiles, scenario, toolchain
 from . import measure
 from .config import repo_root, safe_child, sim_home
 from .automation import AutomationClient
@@ -111,6 +111,11 @@ def parser() -> argparse.ArgumentParser:
     scenario_run = scenarios.add_parser("run"); scenario_run.add_argument("file", type=Path)
     scenario_run.add_argument("--repeat", type=int, default=1); scenario_run.add_argument("--out", type=Path)
     scenario_run.add_argument("--instance", default="default"); scenario_run.add_argument("--keep-instance", action="store_true")
+    matrices = commands.add_parser("matrix").add_subparsers(dest="matrix_command", required=True)
+    matrix_run = matrices.add_parser("run"); matrix_run.add_argument("file", type=Path)
+    matrix_run.add_argument("--only"); matrix_run.add_argument("--out", type=Path)
+    matrix_run.add_argument("--jobs", type=int, default=1); matrix_run.add_argument("--repeat", type=int, default=1)
+    matrix_run.add_argument("--no-fail", action="store_true")
     return root
 
 
@@ -148,6 +153,15 @@ def main(argv=None) -> int:
         print(str(error), file=sys.stderr)
         return 2
     try:
+        if args.command == "matrix":
+            if args.jobs != 1: raise ValueError("reason=unsupported_matrix_jobs")
+            spec = matrix.load(args.file)
+            code, report, out = matrix.run(spec, only=matrix.parse_only(args.only), out=args.out,
+                                           repeat=args.repeat, no_fail=args.no_fail)
+            status = "pass" if code == 0 else "fail"
+            print(f"matrix_status={status} cells={report['cell_count']} skipped={report['skipped']} failed={report['failed']} out={out}"
+                  + (f" deterministic={str(report['deterministic']).lower()}" if args.repeat > 1 else ""))
+            return code
         if args.command == "scenario":
             if args.scenario_command == "list":
                 try: items = scenario.list_scenarios(args.dir)

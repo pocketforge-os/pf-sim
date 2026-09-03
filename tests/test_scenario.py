@@ -90,3 +90,17 @@ class ScenarioTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(json.loads((out / "report.json").read_text())["runs"][0]["steps"][0]["output"],
                              "/tmp/profile-result")
+
+    def test_live_observe_tolerates_missing_authority_socket(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("pf_sim.scenario.run_dir", return_value=Path(tmp)), \
+                patch("pf_sim.scenario.AutomationClient") as automation, \
+                patch("pf_sim.scenario.AuthorityClient") as authority:
+            automation.return_value.ping.return_value = {"ok": True}
+            automation.return_value.scene.return_value = {"scene": {"id": "home-scroll-region"}}
+            scene, history, ping = scenario.LiveBackend("default").observe()
+            self.assertEqual(history, [])
+            self.assertEqual(ping["authority"], "unavailable")
+            self.assertEqual(ping["session_state"], "idle")
+            authority.return_value.history.assert_not_called()
+            self.assertIn("route", scene)
