@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y weston libxkbcommon-dev pkg-config python3-pil
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo
+            ~/.local/state/pf-sim/toolchain/target
+          key: pf-sim-toolchain-${{ hashFiles('pins.toml') }}
+      - name: Compile Python
+        run: python3 -m compileall -q pf_sim tests
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build toolchain
+        run: ./pf-simctl toolchain build
+      - name: Doctor
+        env:
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
+        run: mkdir -p "$XDG_RUNTIME_DIR" && ./pf-simctl doctor
+      - name: Repeatable desktop lifecycle
+        env:
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          ./pf-simctl up --display headless
+          ./pf-simctl status --json
+          ./pf-simctl down
+          ./pf-simctl up --display headless
+          ./pf-simctl down

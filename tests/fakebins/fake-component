@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import os
+import socket
+import sys
+import time
+from pathlib import Path
+
+args = sys.argv[1:]
+name = "weston" if Path(sys.argv[0]).name == "weston" else (
+    "supervisor" if "--desktop-sim-supervise" in args else
+    "shell" if "--wayland" in args else "authorityd"
+)
+trace = os.environ.get("PF_FAKE_TRACE")
+if trace:
+    with open(trace, "a") as handle: handle.write(name + "\n")
+if os.environ.get("PF_FAKE_DIE") == name:
+    sys.exit(7)
+sockets = []
+if name == "weston":
+    value = next(a.split("=", 1)[1] for a in args if a.startswith("--socket="))
+    socket_path = Path(os.environ["XDG_RUNTIME_DIR"]) / value
+elif name == "authorityd":
+    socket_path = Path(args[args.index("--socket") + 1])
+else:
+    socket_path = None
+if socket_path:
+    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    socket_path.unlink(missing_ok=True)
+    server = socket.socket(socket.AF_UNIX)
+    server.bind(str(socket_path)); server.listen()
+    sockets.append(server)
+while True: time.sleep(0.1)

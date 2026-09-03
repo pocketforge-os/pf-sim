@@ -1,0 +1,3 @@
+[launcher]
+repo = "https://github.com/pocketforge-os/launcher.git"
+rev = "b876f059d2857ca4634537b86faf6ede834526a2"

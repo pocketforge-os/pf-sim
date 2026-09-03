@@ -19,3 +19,27 @@ evidence suite.
 `pocketforge-os/launcher` (and its pinned `runtime` rev) by rev pin or built artifact only.
 
 Epic: `tsp-tcew` in `pocketforge-os/mission-control`.
+
+## Quickstart
+
+Python 3.10 or newer is required. Diagnose the host, build the revision-pinned launcher/runtime
+toolchain, and start a fresh headless instance:
+
+```sh
+./pf-simctl doctor
+./pf-simctl toolchain build
+./pf-simctl up --display headless
+./pf-simctl status --json
+./pf-simctl down
+```
+
+Set `PF_SIM_HOME` to relocate machine-local state (the default is
+`~/.local/state/pf-sim`). Use `--display windowed` when `DISPLAY` is available.
+
+## Layout
+
+- `pf_sim/` contains the CLI, lifecycle supervisor, backend abstraction, and toolchain builder.
+- `pins.toml` is the source-of-truth launcher revision; the runtime revision is derived from it.
+- `fixtures/` contains simulator-owned catalog data.
+- `tests/` contains hermetic `unittest` coverage and fake lifecycle components.
+- `$PF_SIM_HOME/toolchain/` and `$PF_SIM_HOME/runs/` hold generated binaries and run state.
