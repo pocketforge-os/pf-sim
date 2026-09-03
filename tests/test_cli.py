@@ -1,6 +1,7 @@
 import io
 import os
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,13 @@ from pf_sim.cli import main
 
 
 class CliStatusTests(unittest.TestCase):
+    def test_wrapper_runs_from_another_directory(self):
+        wrapper = Path(__file__).resolve().parents[1] / "pf-simctl"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run([str(wrapper), "--help"], cwd=tmp, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pf-simctl", result.stdout)
+
     def test_app_list_does_not_require_running_authority(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}), \
                 patch("pf_sim.cli.AuthorityClient") as client, patch("sys.stdout", new=io.StringIO()) as stdout:

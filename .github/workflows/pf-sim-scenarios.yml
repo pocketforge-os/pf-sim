@@ -1,0 +1,140 @@
+name: pf-sim scenarios
+
+on:
+  workflow_call:
+    inputs:
+      launcher_ref:
+        description: Launcher commit to build (defaults to pins.toml)
+        required: false
+        type: string
+        default: ""
+      scenarios:
+        description: Scenario file glob
+        required: false
+        type: string
+        default: "scenarios/*.toml"
+      matrix_only:
+        description: Optional product-010 matrix filter
+        required: false
+        type: string
+        default: ""
+      repeat:
+        description: Number of scenario repetitions
+        required: false
+        type: number
+        default: 1
+  workflow_dispatch:
+    inputs:
+      launcher_ref:
+        description: Launcher commit to build
+        required: false
+        type: string
+        default: ""
+      scenarios:
+        description: Scenario file glob
+        required: false
+        type: string
+        default: "scenarios/*.toml"
+      matrix_only:
+        description: Optional product-010 matrix filter
+        required: false
+        type: string
+        default: ""
+      repeat:
+        description: Number of scenario repetitions
+        required: false
+        type: number
+        default: 1
+
+jobs:
+  scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PF_SIM_HOME: ${{ runner.temp }}/pf-sim-home
+      XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
+      PF_SIM_REQUIRE_UINPUT: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y weston libxkbcommon-dev pkg-config python3-pil python3-yaml
+      - name: Workflow lint and action pin guard
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, yaml
+          files = list(pathlib.Path('.github/workflows').glob('*.yml'))
+          for path in files:
+              yaml.safe_load(path.read_text())
+              for line in path.read_text().splitlines():
+                  match = re.search(r'\buses:\s*([^\s#]+)', line)
+                  if match and not match.group(1).startswith('./'):
+                      assert re.search(r'@[0-9a-f]{40}$', match.group(1)), f'{path}: unpinned {match.group(1)}'
+          PY
+      - name: Wrapper is cwd-independent
+        run: cd /tmp && "$GITHUB_WORKSPACE/pf-simctl" --help >/dev/null
+      - name: Enable uinput
+        run: sudo modprobe uinput && sudo chmod 666 /dev/uinput
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo
+            ${{ runner.temp }}/pf-sim-home/toolchain/target
+          key: pf-sim-toolchain-${{ inputs.launcher_ref || hashFiles('pins.toml') }}
+      - name: Compile and test
+        run: |
+          python3 -m compileall -q pf_sim tests
+          unit_home="$(mktemp -d)"
+          trap 'rm -rf "$unit_home"' EXIT
+          PF_SIM_HOME="$unit_home" python3 -m unittest discover -s tests -v
+      - name: Build selected launcher toolchain
+        env:
+          LAUNCHER_REF: ${{ inputs.launcher_ref }}
+        run: |
+          if [ -n "$LAUNCHER_REF" ]; then
+            ./pf-simctl toolchain build --launcher-rev "$LAUNCHER_REF"
+          else
+            ./pf-simctl toolchain build
+          fi
+      - name: Doctor
+        run: mkdir -p "$XDG_RUNTIME_DIR" && ./pf-simctl doctor
+      - name: Run scenarios
+        env:
+          SCENARIO_GLOB: ${{ inputs.scenarios }}
+          REPEAT: ${{ inputs.repeat }}
+        run: |
+          python3 - <<'PY' > /tmp/scenarios.list
+          import glob, os
+          paths = sorted(glob.glob(os.environ['SCENARIO_GLOB']))
+          if not paths:
+              raise SystemExit('scenario glob matched no files')
+          print('\n'.join(paths))
+          PY
+          while IFS= read -r file; do ./pf-simctl scenario run "$file" --repeat "$REPEAT"; done < /tmp/scenarios.list
+      - name: Run reduced product-010 matrix
+        env:
+          MATRIX_ONLY: ${{ inputs.matrix_only }}
+        run: |
+          args=""
+          if [ -n "$MATRIX_ONLY" ]; then args="--only=$MATRIX_ONLY"; fi
+          ./pf-simctl matrix run audits/product-010/matrix.toml $args --out matrix-report
+      - name: Reproduce product-010 audits
+        run: |
+          for recipe in audits/product-010/home200-footer-overlap.toml audits/product-010/pill-ink.toml audits/product-010/settings-caption-gap.toml; do
+            ./pf-simctl audit run "$recipe" | tee "$(basename "$recipe" .toml).audit.txt"
+          done
+          grep -qx 'audit_status=reproduced' home200-footer-overlap.audit.txt
+          grep -qx 'audit_status=partial' pill-ink.audit.txt
+          grep -qx 'audit_status=partial' settings-caption-gap.audit.txt
+      - name: Reap simulator processes
+        if: always()
+        run: ./pf-simctl down --reap-orphans
+      - name: Upload scenario and measurement evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pf-sim-scenario-reports
+          path: |
+            ${{ runner.temp }}/pf-sim-home/scenarios
+            matrix-report
+            *.audit.txt
+          if-no-files-found: error

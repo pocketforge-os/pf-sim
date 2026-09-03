@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 from unittest.mock import Mock
 
-from pf_sim.backend.desktop import COMPONENTS, DesktopBackend, proc_start
+from pf_sim.backend.desktop import COMPONENTS, DesktopBackend, orphan_shell_pids, proc_start
 from pf_sim.profiles import resolve_profile
 
 
@@ -54,6 +54,23 @@ class DesktopTests(unittest.TestCase):
             os.environ.pop("XDG_RUNTIME_DIR", None)
             self.assertTrue(self.backend.down("default"))
         self.assertFalse(socket_path.exists())
+
+    def test_orphan_scan_and_reap_are_limited_to_sim_home(self):
+        inside = self.home / "runs/orphan/shell"; inside.mkdir(parents=True)
+        outside = self.root / "other/shell"; outside.mkdir(parents=True)
+        sleeper = 'exec -a pf-shell python3 -c "import time; time.sleep(30)" "$@"'
+        owned = subprocess.Popen(["bash", "-c", sleeper, "--", "--state-dir", str(inside)])
+        foreign = subprocess.Popen(["bash", "-c", sleeper, "--", "--state-dir", str(outside)])
+        try:
+            self.assertIn(owned.pid, orphan_shell_pids())
+            self.assertNotIn(foreign.pid, orphan_shell_pids())
+            self.assertTrue(self.backend.down("missing", reap_orphans=True))
+            owned.wait(timeout=2)
+            self.assertIsNone(foreign.poll())
+        finally:
+            for process in (owned, foreign):
+                if process.poll() is None:
+                    process.terminate(); process.wait()
 
     def test_failure_tears_down_started_components(self):
         with patch.dict(os.environ, {"PF_FAKE_DIE": "shell"}), self.assertRaisesRegex(RuntimeError, "shell_died"):

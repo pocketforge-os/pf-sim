@@ -33,6 +33,26 @@ def alive(record: dict | None) -> bool:
     return bool(record and proc_start(int(record["pid"])) == int(record["start_time"]))
 
 
+def orphan_shell_pids() -> list[int]:
+    """Find pf-shell processes whose state directory belongs to this PF_SIM_HOME."""
+    runs = (sim_home() / "runs").resolve()
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv = entry.joinpath("cmdline").read_bytes().split(b"\0")
+            args = [part.decode(errors="replace") for part in argv if part]
+            index = args.index("--state-dir")
+            state_dir = Path(args[index + 1]).resolve()
+        except (OSError, ValueError, IndexError):
+            continue
+        executables = {Path(arg).name for arg in args[:2]}
+        if "pf-shell" in executables and state_dir.is_relative_to(runs):
+            found.append(int(entry.name))
+    return sorted(found)
+
+
 class DesktopBackend(Backend):
     def __init__(self, popen=subprocess.Popen, wait_timeout: float = 10.0, settle: float = 2.0):
         self.popen, self.wait_timeout, self.settle = popen, wait_timeout, settle
@@ -288,7 +308,7 @@ class DesktopBackend(Backend):
         if process.poll() is not None: raise RuntimeError("reason=shell_died")
         return path
 
-    def down(self, instance: str) -> bool:
+    def down(self, instance: str, reap_orphans: bool = False) -> bool:
         path = run_dir(instance)
         records = self._records(path)
         running = any(alive(records.get(name)) for name in COMPONENTS)
@@ -315,4 +335,16 @@ class DesktopBackend(Backend):
                 try: process.wait(timeout=0.2)
                 except subprocess.TimeoutExpired: pass
         gamepad.destroy(instance)
+        if reap_orphans:
+            known = {int(record["pid"]) for record in records.values() if "pid" in record}
+            orphans = [pid for pid in orphan_shell_pids() if pid not in known]
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                for pid in orphans:
+                    if proc_start(pid) is not None:
+                        try: os.kill(pid, sig)
+                        except ProcessLookupError: pass
+                deadline = time.monotonic() + (3 if sig == signal.SIGTERM else 0.2)
+                while time.monotonic() < deadline and any(proc_start(pid) is not None for pid in orphans):
+                    time.sleep(0.05)
+            running |= bool(orphans)
         return running

@@ -1,2 +1,3 @@
 #!/bin/sh
-exec python3 -m pf_sim "$@"
+dir=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
+exec env PYTHONPATH="$dir${PYTHONPATH:+:$PYTHONPATH}" python3 -m pf_sim "$@"
