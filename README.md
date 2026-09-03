@@ -19,3 +19,5 @@ XDG_RUNTIME_DIR=/run/user/$(id -u) /path/to/pf-sim/pf-simctl doctor
 ```
 
 Machine-local state defaults to `~/.local/state/pf-sim`; set `PF_SIM_HOME` to isolate it. See the canonical [GUI development loop](docs/gui-dev-loop.md) and [CI integration guide](docs/ci-integration.md).
+
+For release-style verification, `scripts/verify-clean-checkout.sh` clones the current commit and runs the full acceptance suite with an empty `PF_SIM_HOME`. Allow about 13 minutes on the development laptop: a cached toolchain build takes about 1 minute and the reduced product-010 matrix about 8 minutes.

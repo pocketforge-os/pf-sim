@@ -14,12 +14,41 @@ no-vendored-rust
 single-launcher-pin
 no-orphan-shells'
 
+check_audit_output() {
+    recipe=$1 expected=$2 out=$3
+    grep -qx "audit_status=$expected" "$out" || return 1
+    case "$recipe" in
+      home200-footer-overlap)
+        grep -q '^phase=.* mode=fixture reproduced=True' "$out"
+        ;;
+      pill-ink|settings-caption-gap)
+        grep -q '^phase=pre-fix mode=unreproducible reproduced=None reason=' "$out" &&
+            grep -q '^phase=post-fix mode=fixture reproduced=True' "$out"
+        ;;
+      *)
+        echo "reason=unknown_audit_recipe recipe=$recipe" >&2
+        return 2
+        ;;
+    esac
+}
+
 if [ "${1:-}" = "--dry-run" ]; then
     echo "Clean-checkout verification plan"
     printf '%s\n' "$criteria" | while IFS= read -r name; do printf 'criterion=%s\n' "$name"; done
     exit 0
 fi
-if [ "$#" -ne 0 ]; then echo "usage: $0 [--dry-run]" >&2; exit 2; fi
+if [ "${1:-}" = "--check-audit-output" ]; then
+    if [ "$#" -ne 4 ]; then
+        echo "usage: $0 --check-audit-output RECIPE EXPECTED FILE" >&2
+        exit 2
+    fi
+    check_audit_output "$2" "$3" "$4"
+    exit $?
+fi
+if [ "$#" -ne 0 ]; then
+    echo "usage: $0 [--dry-run | --check-audit-output RECIPE EXPECTED FILE]" >&2
+    exit 2
+fi
 
 started=$(date +%s)
 tmp=$(mktemp -d)
@@ -85,11 +114,7 @@ audit_check() {
     recipe=$1 expected=$2
     out="$tmp/$(basename "$recipe").audit"
     run_ctl audit run "$checkout/audits/product-010/$recipe.toml" >"$out"
-    grep -qx "audit_status=$expected" "$out"
-    case "$recipe" in
-      home200-footer-overlap) grep -q '^phase=.* mode=fixture reproduced=True' "$out" ;;
-      pill-ink|settings-caption-gap) grep -q '^phase=.* mode=unreproducible reproduced=False reason=' "$out" && grep -q '^phase=.* mode=fixture reproduced=True' "$out" ;;
-    esac
+    check_audit_output "$recipe" "$expected" "$out"
 }
 matrix_check() { run_ctl matrix run "$checkout/audits/product-010/matrix.toml" --only scale=200,contrast=hc --out "$tmp/matrix"; }
 no_rust_check() { [ -z "$(find "$checkout/pf_sim" -name '*.rs' -print -quit)" ]; }
