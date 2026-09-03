@@ -37,7 +37,7 @@ class DesktopTests(unittest.TestCase):
         self.env.stop(); self.tmp.cleanup()
 
     def up(self):
-        return self.backend.up(shell_bin=self.bin / "pf-shell", authorityd_bin=self.bin / "pf-session-authorityd")
+        return self.backend.up(shell_bin=self.bin / "pf-shell", authorityd_bin=self.bin / "pf-session-authorityd", no_gamepad=True)
 
     def test_process_order_readiness_and_teardown(self):
         self.up()
@@ -107,7 +107,7 @@ class DesktopTests(unittest.TestCase):
         def spawn(name, command, path, records, env=None):
             commands.append((name, command)); return process
         with patch.object(self.backend, "_spawn", side_effect=spawn), patch.object(self.backend, "_wait_socket", return_value=True):
-            self.backend.up(shell_bin=self.bin/"pf-shell", authorityd_bin=self.bin/"pf-session-authorityd", profile=resolve_profile("seeded-default"))
+            self.backend.up(shell_bin=self.bin/"pf-shell", authorityd_bin=self.bin/"pf-session-authorityd", profile=resolve_profile("seeded-default"), no_gamepad=True)
         authority = next(command for name,command in commands if name=="authorityd")
         supervisor = next(command for name,command in commands if name=="supervisor")
         for flag in ("--start-command","--graceful-stop-command","--terminate-command","--activate-owner-command"):
@@ -119,6 +119,7 @@ class DesktopTests(unittest.TestCase):
             shell_bin=self.bin / "pf-shell",
             authorityd_bin=self.bin / "pf-session-authorityd",
             profile=resolve_profile("seeded-default"),
+            no_gamepad=True,
         )
         run = self.home / "runs/default"
         before = json.loads((run / "pids.json").read_text())

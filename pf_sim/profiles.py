@@ -23,6 +23,7 @@ class Profile:
     first_run_complete: bool
     source: str
     supervisor: str
+    batteries: tuple[dict, ...]
 
 
 def profile_roots() -> tuple[tuple[Path, str], ...]:
@@ -40,7 +41,22 @@ def load_profile(path: Path, source: str = "path") -> Profile:
                    tuple(data.get("shell", {}).get("extra_args", [])), scale,
                    bool(prefs.get("high_contrast", False)),
                    bool(prefs.get("first_run_complete", True)), source,
-                   data.get("stack", {}).get("supervisor", "pf-sim"))
+                   data.get("stack", {}).get("supervisor", "pf-sim"),
+                   tuple(data.get("power", {}).get("batteries", [])))
+
+
+def render_power_supply(run_dir: Path, profile: Profile) -> None:
+    root = run_dir / "power_supply"
+    batteries = [(validate_name("power_supply", str(item["name"])), item) for item in profile.batteries]
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True)
+    for name, battery in batteries:
+        target = safe_child(root, "power_supply", name)
+        target.mkdir()
+        values = {"type": "Battery", "capacity": int(battery["capacity"]),
+                  "status": battery["status"], "scope": battery["scope"]}
+        for key, value in values.items():
+            (target / key).write_text(str(value) + "\n")
 
 
 def resolve_profile(name_or_path: str, *, allow_path: bool = False) -> Profile:
@@ -75,6 +91,8 @@ def effective_prefs(profile: Profile, scale: str | None = None, contrast: str | 
 
 def seed_profile(run_dir: Path, profile: Profile, scale: str | None = None, contrast: str | None = None,
                  include_authority: bool = True) -> None:
+    for item in profile.batteries:
+        validate_name("power_supply", str(item["name"]))
     state = profile.path / "state"
     if state.is_dir():
         for item in state.iterdir():
@@ -87,11 +105,14 @@ def seed_profile(run_dir: Path, profile: Profile, scale: str | None = None, cont
     (shell / "prefs.json").unlink(missing_ok=True)
     if prefs is not None:
         (shell / "prefs.json").write_text(json.dumps(prefs, separators=(",", ":")) + "\n")
+    render_power_supply(run_dir, profile)
 
 
 def validate_profile(profile: Profile) -> None:
     if profile.supervisor not in ("pf-sim", "shell"):
         raise ValueError("reason=invalid_supervisor")
+    for item in profile.batteries:
+        validate_name("power_supply", str(item["name"]))
     state = profile.path / "state"
     if not state.exists(): return
     for path in state.rglob("*"):

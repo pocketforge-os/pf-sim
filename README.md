@@ -49,11 +49,18 @@ without navigating the Settings UI. The default is `seeded-default`:
 ./pf-simctl capture seeded-200-hc
 ```
 
-`--scale 100|150|200` and `--contrast default|hc` compose with every profile. This provides all
+`--scale 100|150|200` and `--contrast default|hc` compose with every profile. The
+`power-status-present` and `controller-battery-low` profiles provide deterministic sysfs-backed
+device status without exposing the host laptop's battery. This provides all
 six visual presets by deterministic state writes rather than keying through Settings. `profile
 snapshot NAME` saves sanitized state under `$PF_SIM_HOME/profiles/NAME`; `profile validate
-NAME_OR_PATH` rejects live markers, sockets, and locks. `capture` is raw and not frame-synchronized.
-The raw `key KEYSYM...` fallback works only for windowed Weston; controller input arrives in P2.
+NAME_OR_PATH` rejects live markers, sockets, and locks.
+
+`capture NAME` waits for the shell's presented frame, asks the shell to capture that exact composed
+frame, then writes `NAME.png`, `NAME.scene.json`, and an audited metadata sidecar. Use
+`capture --repeat 2 NAME` to check byte determinism. `capture --raw NAME` is the legacy compositor
+screenshot fallback. The raw `key KEYSYM...` fallback works only with `up --no-gamepad` in a
+windowed Weston session.
 
 ## Input
 
@@ -64,23 +71,28 @@ not copied into this repository: `toolchain build` copies `device.json` from the
 launcher checkout into `$PF_SIM_HOME/toolchain/device-contract.json` and records its SHA-256 in
 the toolchain manifest.
 
-Create the gamepad, inspect its controls, send controller-shaped input, and remove it with:
+`up` creates the gamepad and connects it as the shell's only action source. Input commands wait for
+the resulting frame by default (`--no-wait` is available for deliberately batched input). Inspect
+controls and send controller-shaped input with:
 
 ```sh
-./pf-simctl gamepad create [--instance default]
 ./pf-simctl gamepad status [--instance default] [--json]
 ./pf-simctl input list
 ./pf-simctl input press east A BTN_EAST --hold-ms 60 --gap-ms 120
 ./pf-simctl input hold south --ms 500
 ./pf-simctl input action Move.down --context shell
 ./pf-simctl input seq "east Move.down south"
-./pf-simctl gamepad destroy [--instance default]
+./pf-simctl input action Search.open
+./pf-simctl text e
+./pf-simctl capture search-e
 ```
 
 The holder owns `/dev/uinput` and serves commands through the instance's `gamepad.sock`; the
 device disappears when the holder exits. On CI or a host without a user ACL, enable access before
 running tests with `sudo modprobe uinput && sudo chmod 666 /dev/uinput`. CI sets
 `PF_SIM_REQUIRE_UINPUT=1`, making unavailable uinput support a failure rather than a skip.
+Text entry uses the automation seam because the simulated device has no on-device keyboard;
+`text --clear` clears the Search query.
 
 ## Layout
 

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "focused": "item-ridgeline",
+  "scene": {
+    "id": "root",
+    "role": "screen",
+    "bounds": {"x": 0, "y": 0, "width": 1280, "height": 720},
+    "children": [
+      {"id": "title", "content": {"kind": "text", "text": "Library"}, "bounds": [10, 20, 100, 30]},
+      {"id": "item-ridgeline", "role": "button", "label": "Ridgeline", "children": []}
+    ]
+  }
+}

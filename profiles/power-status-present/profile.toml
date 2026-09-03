@@ -1,6 +1,6 @@
 [profile]
-name = "seeded-default"
-description = "Normal seeded shell with two catalog favorites"
+name = "power-status-present"
+description = "Normal shell with a deterministic 82% system battery"
 [stack]
 authority = true
 supervisor = "pf-sim"

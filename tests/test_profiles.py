@@ -19,6 +19,23 @@ class ProfileTests(unittest.TestCase):
                     self.assertEqual(prefs["textScale"], scale + "%")
                     self.assertEqual(prefs["highContrast"], contrast == "hc")
 
+    def test_power_profile_renders_fake_sysfs_tree(self):
+        profile = load_profile(Path("profiles/controller-battery-low"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); seed_profile(root, profile)
+            self.assertEqual((root / "power_supply/BAT0/type").read_text(), "Battery\n")
+            self.assertEqual((root / "power_supply/controller/capacity").read_text(), "15\n")
+            self.assertEqual((root / "power_supply/controller/scope").read_text(), "Device\n")
+
+    def test_invalid_power_name_rejected_before_tree_mutation(self):
+        profile = load_profile(Path("profiles/seeded-default"))
+        profile = __import__("dataclasses").replace(profile, batteries=({"name":"../bad","capacity":1,"status":"Discharging","scope":"Device"},))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); sentinel = root / "power_supply/keep"; sentinel.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "invalid_power_supply"):
+                seed_profile(root, profile)
+            self.assertTrue(sentinel.exists())
+
     def test_restart_plan(self):
         expected_restart = ("shell", "supervisor", "authorityd")
         for old, new, expected in (

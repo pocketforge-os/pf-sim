@@ -7,13 +7,13 @@ import shutil
 import struct
 import subprocess
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image
 
 from .config import run_dir, safe_child, sim_home
+from .automation import AutomationClient
 
 
 def sha256(png: str | Path) -> str:
@@ -33,7 +33,7 @@ def _xwd_to_png(source: Path, target: Path) -> None:
     Image.frombytes("RGB", (width, height), data[offset:offset + height*bpl], "raw", "BGRX", bpl).save(target)
 
 
-def capture(name: str, instance: str, settle: float = .5) -> tuple[Path, dict]:
+def capture(name: str, instance: str, settle: float = .5, *, raw=False, quiet_ms=150, timeout_ms=5000) -> tuple[Path, dict]:
     target_dir = safe_child(sim_home() / "captures", "instance", instance)
     validated_target = safe_child(target_dir, "capture", name)
     target = validated_target.parent / f"{validated_target.name}.png"
@@ -42,6 +42,20 @@ def capture(name: str, instance: str, settle: float = .5) -> tuple[Path, dict]:
         raise ValueError("reason=invalid_capture")
     meta = json.loads((run_dir(instance) / "run.json").read_text())
     target_dir.mkdir(parents=True, exist_ok=True)
+    if not raw:
+        client = AutomationClient(run_dir(instance) / "automation.sock")
+        client.wait_idle(quiet_ms, timeout_ms)
+        result = client.capture(target)
+        scene = client.scene()
+        scene_path = target.with_suffix(".scene.json")
+        scene_path.write_text(json.dumps(scene, indent=2, sort_keys=True) + "\n")
+        sidecar = {key: meta.get(key) for key in ("instance", "profile", "scale", "contrast", "launcher_rev", "runtime_rev", "display")}
+        sidecar.update(captured_at=datetime.now(timezone.utc).isoformat(), png_sha256=sha256(target),
+                       scene_sha256=sha256(scene_path), frames=result["frames"], revision=result["revision"])
+        sidecar["sha256"] = sidecar["png_sha256"]
+        target.with_suffix(".json").write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
+        return target, sidecar
+    import time
     time.sleep(settle)
     with tempfile.TemporaryDirectory() as temporary:
         cwd = Path(temporary)

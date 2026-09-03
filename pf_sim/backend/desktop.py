@@ -16,6 +16,8 @@ from ..pins import load_pins
 from ..stack import seed_run_dir
 from ..profiles import Profile, restart_plan, seed_profile
 from ..toolchain import read_manifest, sha256
+from ..automation import AutomationClient, AutomationError
+from .. import gamepad
 
 COMPONENTS = ("weston", "authorityd", "supervisor", "shell")
 
@@ -69,6 +71,11 @@ class DesktopBackend(Backend):
             "shell_bin": meta.get("shell_bin"), "authorityd_bin": meta.get("authorityd_bin"),
             "shell_sha256": meta.get("shell_sha256"), "authorityd_sha256": meta.get("authorityd_sha256"),
         }
+        try:
+            AutomationClient(path / "automation.sock", timeout=.25).ping()
+            result["automation"] = "ok"
+        except AutomationError:
+            result["automation"] = "down"
         expected = ("weston", "shell") if meta.get("authority") is False else COMPONENTS
         count = sum(components[name]["alive"] for name in expected)
         degraded_reasons = [f"{name}_dead" for name, item in components.items() if not item["alive"]]
@@ -107,8 +114,21 @@ class DesktopBackend(Backend):
             time.sleep(0.05)
         return False
 
+    def _wait_automation(self, socket_path: Path, process: subprocess.Popen) -> bool:
+        deadline = time.monotonic() + self.wait_timeout
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                return False
+            try:
+                AutomationClient(socket_path, timeout=.1).ping()
+                return True
+            except AutomationError:
+                time.sleep(.05)
+        return False
+
     def up(self, *, instance="default", display="headless", replace=False, shell_bin=None, authorityd_bin=None, seed=None,
-           profile: Profile | None = None, scale: str | None = None, contrast: str | None = None) -> Path:
+           profile: Profile | None = None, scale: str | None = None, contrast: str | None = None,
+           no_gamepad: bool = False) -> Path:
         current = self.status(instance)
         if current["state"] != "down":
             if not replace:
@@ -128,6 +148,7 @@ class DesktopBackend(Backend):
                 raise RuntimeError(f"reason={label}_bin_missing path={binary}")
         path = run_dir(instance)
         path.mkdir(parents=True, exist_ok=True)
+        pad = None if no_gamepad else gamepad.create(instance)
         if profile is not None:
             seed = lambda run: seed_profile(run, profile, scale, contrast)
         seed_run_dir(path, seed)
@@ -148,6 +169,9 @@ class DesktopBackend(Backend):
             "authority": profile.authority if profile else True,
             "shell_extra_args": list(profile.extra_args) if profile else [],
             "supervisor": profile.supervisor if profile else "shell",
+            "input_source": "wayland-keyboard" if no_gamepad else "evdev",
+            "event_node": None if pad is None else pad["event_node"],
+            "gamepad": None if pad is None else {key: pad.get(key) for key in ("pid", "start_time", "event_node")},
         }
         (path / "run.json").write_text(json.dumps(metadata, indent=2) + "\n")
         records: dict = {}
@@ -179,9 +203,16 @@ class DesktopBackend(Backend):
                 if processes[-1][1].poll() is not None:
                     raise RuntimeError("reason=supervisor_died")
             env = os.environ.copy(); env.update(self.shell_display_env(socket_name))
+            env["PF_POWER_SUPPLY_ROOT"] = str(path / "power_supply")
             shell_command = [str(shell), "--wayland", "--device-fixtures", "--state-dir", str(path / "shell"), "--session-socket", str(authority_socket), "--catalog-snapshot", str(repo_root() / "fixtures" / "catalog-snapshot.json")] + metadata["shell_extra_args"]
+            if not no_gamepad:
+                env["PF_SHELL_AUTOMATION"] = "1"
+                shell_command += ["--input", pad["event_node"], "--automation-socket", str(path / "automation.sock")]
             processes.append(("shell", self._spawn("shell", shell_command, path, records, env)))
-            time.sleep(self.settle)
+            if not no_gamepad and not self._wait_automation(path / "automation.sock", processes[-1][1]):
+                raise RuntimeError("reason=automation_socket_died")
+            if no_gamepad:
+                time.sleep(self.settle)
             dead = next((name for name, process in processes if process.poll() is not None), None)
             if dead:
                 raise RuntimeError(f"reason={dead}_died")
@@ -240,11 +271,19 @@ class DesktopBackend(Backend):
             time.sleep(.5)
             if process.poll() is not None: raise RuntimeError("reason=supervisor_died")
         env = os.environ.copy(); env.update(self.shell_display_env(meta["weston_socket"]))
+        env["XDG_RUNTIME_DIR"] = meta["xdg_runtime_dir"]
+        env["PF_POWER_SUPPLY_ROOT"] = str(path / "power_supply")
         command = [shell, "--wayland", "--device-fixtures", "--state-dir", str(path / "shell"), "--session-socket", str(authority_socket), "--catalog-snapshot", str(repo_root() / "fixtures/catalog-snapshot.json")] + list(profile.extra_args)
+        if meta.get("input_source") == "evdev":
+            env["PF_SHELL_AUTOMATION"] = "1"
+            command += ["--input", meta["event_node"], "--automation-socket", str(path / "automation.sock")]
         process = self._spawn("shell", command, path, records, env)
-        # The shell's BackendUnavailable boot path paints after its retry window.
-        # This remains a time-based raw P1 settle; frame synchronization arrives in P2.
-        time.sleep(max(self.settle, 4.0) if not profile.authority else self.settle)
+        if meta.get("input_source") == "evdev":
+            if not self._wait_automation(path / "automation.sock", process):
+                raise RuntimeError("reason=automation_socket_died")
+        else:
+            # The keyboard-only fallback has no presented-frame seam.
+            time.sleep(max(self.settle, 4.0) if not profile.authority else self.settle)
         if process.poll() is not None: raise RuntimeError("reason=shell_died")
         return path
 
@@ -267,10 +306,12 @@ class DesktopBackend(Backend):
             if xdg: (Path(xdg) / meta.get("weston_socket", "__missing__")).unlink(missing_ok=True)
         except (FileNotFoundError, json.JSONDecodeError): pass
         (path / "session-authority.sock").unlink(missing_ok=True)
+        (path / "automation.sock").unlink(missing_ok=True)
         (path / "pids.json").unlink(missing_ok=True)
         for record in records.values():
             process = self._processes.pop(int(record["pid"]), None)
             if process is not None:
                 try: process.wait(timeout=0.2)
                 except subprocess.TimeoutExpired: pass
+        gamepad.destroy(instance)
         return running

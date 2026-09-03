@@ -4,18 +4,37 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
 
 from pf_sim.capture import capture, is_blank, sha256
 
 
 class CaptureTests(unittest.TestCase):
+    def test_frame_complete_capture_order_and_scene_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); run = root / "runs/default"; run.mkdir(parents=True)
+            run.joinpath("run.json").write_text(json.dumps({"instance":"default", "display":"headless"}))
+            calls = []
+            client = Mock()
+            client.wait_idle.side_effect = lambda *args: calls.append("wait_idle")
+            def write_capture(path):
+                calls.append("capture"); Path(path).write_bytes(b"png")
+                return {"ok":True, "frames":7, "revision":4}
+            client.capture.side_effect = write_capture
+            client.scene.side_effect = lambda: calls.append("scene") or {"ok":True,"frames":7,"revision":4,"scene":{}}
+            with patch.dict(os.environ, {"PF_SIM_HOME":tmp}), patch("pf_sim.capture.AutomationClient", return_value=client):
+                png, sidecar = capture("shot", "default")
+            self.assertEqual(calls, ["wait_idle", "capture", "scene"])
+            self.assertTrue(png.with_suffix(".scene.json").exists())
+            self.assertEqual((sidecar["frames"], sidecar["revision"]), (7, 4))
+
     def test_headless_capture_and_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); run = root / "runs/default"; run.mkdir(parents=True)
             run.joinpath("run.json").write_text(json.dumps({"instance":"default","profile":"first-run","scale":"100","contrast":"default","launcher_rev":"l","runtime_rev":"r","display":"headless","weston_socket":"pf-sim-default","xdg_runtime_dir":tmp}))
             fake = str(Path(__file__).parent / "fakebins")
             with patch.dict(os.environ, {"PF_SIM_HOME":tmp, "PATH":fake + os.pathsep + os.environ["PATH"]}):
-                png, sidecar = capture("shot", "default", 0)
+                png, sidecar = capture("shot", "default", 0, raw=True)
             self.assertTrue(png.exists()); self.assertFalse(is_blank(png))
             self.assertEqual(sidecar["sha256"], sha256(png))
             self.assertEqual(json.loads(png.with_suffix(".json").read_text())["profile"], "first-run")
@@ -27,7 +46,7 @@ class CaptureTests(unittest.TestCase):
                 outside.write_text("keep")
                 try:
                     with self.assertRaisesRegex(ValueError, "reason=invalid_capture"):
-                        capture(name, "default", 0)
+                        capture(name, "default", 0, raw=True)
                     self.assertEqual(outside.read_text(), "keep")
                     self.assertFalse((Path(tmp) / "captures").exists())
                 finally:
@@ -39,5 +58,5 @@ class CaptureTests(unittest.TestCase):
             run.joinpath("run.json").write_text(json.dumps({"instance":"default","profile":"first-run","scale":"100","contrast":"default","launcher_rev":"l","runtime_rev":"r","display":"headless","weston_socket":"pf-sim-default","xdg_runtime_dir":tmp}))
             fake = str(Path(__file__).parent / "fakebins")
             with patch.dict(os.environ, {"PF_SIM_HOME":tmp, "PATH":fake + os.pathsep + os.environ["PATH"]}):
-                png, _ = capture("shot.v1", "default", 0)
+                png, _ = capture("shot.v1", "default", 0, raw=True)
             self.assertEqual(png.name, "shot.v1.png")

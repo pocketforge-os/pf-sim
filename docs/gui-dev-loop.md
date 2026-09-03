@@ -7,6 +7,8 @@ The complete GUI workflow will land in P5. For now, the desktop simulator lifecy
 ./pf-simctl toolchain build
 ./pf-simctl up --display headless
 ./pf-simctl profile apply seeded-default --scale 150 --contrast default
+./pf-simctl input action Search.open
+./pf-simctl text e
 ./pf-simctl capture current-screen
 ./pf-simctl status --json
 ./pf-simctl down
@@ -14,9 +16,15 @@ The complete GUI workflow will land in P5. For now, the desktop simulator lifecy
 
 Use `--display windowed` from a desktop session when interactive viewing is needed.
 
-Use `profile apply` and the scale/contrast flags instead of driving Settings with keys. The shipped
-states are `first-run`, `seeded-default`, and `degraded-authority`; `profile list` also includes local
-snapshots. P1 captures are raw: their settle delay is time-based, not frame synchronization.
+Input travels through the virtual evdev gamepad and the launcher's real `pf-input-map`; each input
+verb waits until the resulting shell frame is presented. Search text uses the automation-only
+`text VALUE`/`text --clear` path because no on-device keyboard exists.
+
+Use `profile apply` and the scale/contrast flags instead of driving Settings with keys. Alongside
+the existing states, `power-status-present` and `controller-battery-low` render deterministic fake
+power-supply trees. A normal capture is frame-complete and emits a PNG, verbatim `.scene.json`, and
+metadata sidecar with frame/revision and content hashes. `capture --repeat 2 NAME` checks raster
+determinism; `--raw` retains the old time-based compositor fallback.
 ## Deterministic session states
 
 Use fixture sessions when a screenshot must capture a state rather than a timing
