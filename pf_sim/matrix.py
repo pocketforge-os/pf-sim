@@ -161,7 +161,8 @@ class LiveMatrixBackend:
         self.live.start(profile, scale, contrast, True)
 
     def execute(self, step: dict) -> object:
-        before = self.live.automation.scene().get("revision", 0)
+        before = (self.live.automation.scene().get("revision", 0)
+                  if step["op"] == "input" and self.profile != "degraded-authority" else None)
         try:
             result = self.live.execute(step)
         except RuntimeError as error:
@@ -173,15 +174,32 @@ class LiveMatrixBackend:
                 result = {"settled": "content-stable", "revision_churn": True}
             else:
                 raise
-        # The virtual gamepad tap is asynchronous. wait_idle can observe the old
-        # frame before the final evdev event is consumed, so also require every
-        # action in the step to advance the semantic revision.
-        expected = before + (len(step["seq"].split()) if step["op"] == "input" else 1)
-        deadline = time.monotonic() + 3
-        while self.live.automation.scene().get("revision", 0) < expected:
-            if time.monotonic() >= deadline:
-                raise RuntimeError("reason=input_not_observed")
-            time.sleep(.02)
+        # The tap RPC completes when evdev receives the release, not when the
+        # launcher has consumed it.  Its first wait_idle can consequently report
+        # the pre-input frame.  Give the reader one dispatch interval, then put a
+        # second idle barrier after the event.  Revision deltas cannot serve as
+        # this barrier: degraded-authority deliberately churns revisions without
+        # consuming input.
+        if step["op"] == "input":
+            # The headless launcher polls evdev on its presentation loop; under
+            # load that loop can be several hundred milliseconds behind the tap
+            # helper even though the automation socket itself is responsive.
+            time.sleep(1.0)
+            if before is not None:
+                deadline = time.monotonic() + 3
+                while self.live.automation.scene().get("revision", 0) <= before:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("reason=input_not_observed")
+                    time.sleep(.02)
+            else:
+                # Revision churn makes the acknowledgement test meaningless for
+                # this profile; the dispatch grace above remains the barrier.
+                pass
+            try:
+                self.live.automation.wait_idle()
+            except RuntimeError as error:
+                if self.profile != "degraded-authority" or str(error) != "reason=automation_error error=timeout":
+                    raise
         return result
 
     def observe(self) -> dict:

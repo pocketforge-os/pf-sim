@@ -14,6 +14,9 @@ expect = { screen = "home", focused_prefix = "item-", search_query = "" }
 [routes.library]
 steps = [
   { op = "input", seq = "Quick" },
+  # Quick remembers its last focused row, so normalize to row zero before
+  # selecting the contract's Library row.
+  { op = "input", seq = "Move.up Move.up Move.up Move.up Move.up Move.up" },
   { op = "input", seq = "Move.down" },
   { op = "input", seq = "Activate" },
 ]
