@@ -25,12 +25,20 @@ def event_node_access() -> str:
         codes = contract_codes()
     except (FileNotFoundError, ValueError):
         return "unknown (toolchain not built)"
-    device = UInputDevice(codes, "doctor-probe")
+    device = None
     try:
+        device = UInputDevice(codes, "doctor-probe")
         event_node = find_event_node(device.sysname)
         return "ok" if wait_event_node_readable(event_node) else "unreadable"
+    except (OSError, RuntimeError) as error:
+        reason = str(error) or error.__class__.__name__
+        return f"unreadable (probe failed: {reason})"
     finally:
-        device.close()
+        if device is not None:
+            try:
+                device.close()
+            except (OSError, RuntimeError):
+                pass
 
 
 def checks() -> list[tuple[str, bool, str, bool]]:

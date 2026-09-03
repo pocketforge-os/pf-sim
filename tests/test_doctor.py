@@ -45,6 +45,27 @@ class DoctorTests(unittest.TestCase):
             self.assertEqual(doctor.event_node_access(), "unknown")
         create.assert_not_called()
 
+    def test_event_node_access_handles_uinput_probe_failure(self):
+        with patch.object(doctor.os, "access", return_value=True), \
+                patch.object(doctor, "contract_codes", return_value=[304, 305]), \
+                patch.object(doctor, "UInputDevice", side_effect=OSError("ioctl failed")):
+            self.assertEqual(
+                doctor.event_node_access(),
+                "unreadable (probe failed: ioctl failed)",
+            )
+
+    def test_event_node_access_handles_event_node_lookup_failure(self):
+        device = Mock(sysname="input123")
+        with patch.object(doctor.os, "access", return_value=True), \
+                patch.object(doctor, "contract_codes", return_value=[304, 305]), \
+                patch.object(doctor, "UInputDevice", return_value=device), \
+                patch.object(doctor, "find_event_node", side_effect=RuntimeError("reason=event_node_timeout")):
+            self.assertEqual(
+                doctor.event_node_access(),
+                "unreadable (probe failed: reason=event_node_timeout)",
+            )
+        device.close.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

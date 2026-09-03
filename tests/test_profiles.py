@@ -115,6 +115,38 @@ class ProfileTests(unittest.TestCase):
                 seed_profile(reapplied, profile)
                 self.assertEqual((reapplied / "shell/prefs.json").exists(), prefs is not None)
 
+    def test_snapshot_round_trips_power_profile(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            run = self._snapshot_run(root, profile="controller-battery-low", authority=True, prefs=None)
+            source = load_profile(Path("profiles/controller-battery-low"))
+            render_power_supply(run, source)
+            original = {
+                path.relative_to(run / "power_supply"): path.read_text()
+                for path in (run / "power_supply").rglob("*") if path.is_file()
+            }
+            saved = snapshot("power-round-trip", run)
+            reapplied = root / "reapplied"
+            render_power_supply(reapplied, saved)
+            restored = {
+                path.relative_to(reapplied / "power_supply"): path.read_text()
+                for path in (reapplied / "power_supply").rglob("*") if path.is_file()
+            }
+            self.assertEqual(restored, original)
+            self.assertIn("[power]", (saved.path / "profile.toml").read_text())
+
+    def test_snapshot_preserves_empty_power_tree(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):
+            root = Path(tmp)
+            run = self._snapshot_run(root, profile="missing-source", authority=True, prefs=None)
+            (run / "power_supply").mkdir()
+            saved = snapshot("empty-power", run)
+            self.assertEqual(saved.batteries, ())
+            self.assertIn("batteries = [\n]", (saved.path / "profile.toml").read_text())
+            reapplied = root / "reapplied"
+            render_power_supply(reapplied, saved)
+            self.assertEqual(list((reapplied / "power_supply").iterdir()), [])
+
     def test_snapshot_rejects_unsafe_names_before_mutation(self):
         for name in ("/tmp/x", "../../x", "a/b"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"PF_SIM_HOME": tmp}):

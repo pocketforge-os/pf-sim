@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config import repo_root, safe_child, sim_home, validate_name
@@ -161,6 +161,48 @@ def sanitize_tree(path: Path) -> None:
             shutil.rmtree(item) if item.is_dir() else item.unlink(missing_ok=True)
 
 
+def _snapshot_batteries(run_dir: Path, source_profile: str) -> list[dict]:
+    """Return validated power state before snapshot mutates its destination."""
+    try:
+        return normalize_batteries(resolve_profile(source_profile))
+    except FileNotFoundError:
+        pass
+
+    root = run_dir / "power_supply"
+    batteries = []
+    if root.is_dir():
+        for battery_dir in sorted(root.iterdir()):
+            if not battery_dir.is_dir():
+                continue
+            validate_name("power_supply", battery_dir.name)
+            try:
+                if (battery_dir / "type").read_text().strip() != "Battery":
+                    continue
+                batteries.append({
+                    "name": battery_dir.name,
+                    "capacity": int((battery_dir / "capacity").read_text().strip()),
+                    "status": (battery_dir / "status").read_text().strip(),
+                    "scope": (battery_dir / "scope").read_text().strip(),
+                })
+            except (FileNotFoundError, ValueError) as error:
+                raise ValueError(
+                    f"reason=invalid_power_profile field=tree battery={battery_dir.name}"
+                ) from error
+    return normalize_batteries(replace(load_profile(Path("profiles/seeded-default")),
+                                       batteries=tuple(batteries)))
+
+
+def _power_toml(batteries: list[dict]) -> str:
+    rows = [
+        "  {name=" + json.dumps(item["name"]) +
+        ", capacity=" + str(item["capacity"]) +
+        ", status=" + json.dumps(item["status"]) +
+        ", scope=" + json.dumps(item["scope"]) + "},"
+        for item in batteries
+    ]
+    return "[power]\nbatteries = [\n" + "\n".join(rows) + ("\n" if rows else "") + "]\n"
+
+
 def snapshot(name: str, run_dir: Path) -> Profile:
     profiles_root = sim_home() / "profiles"
     target = safe_child(profiles_root, "profile", name)
@@ -179,6 +221,7 @@ def snapshot(name: str, run_dir: Path) -> Profile:
         high_contrast = meta.get("contrast") == "hc"
     authority_enabled = bool(meta.get("authority", True))
     source_profile = str(meta.get("profile", "unknown"))
+    batteries = _snapshot_batteries(run_dir, source_profile)
     source_scale = str(meta.get("scale", text_scale.removesuffix("%")))
     source_contrast = str(meta.get("contrast", "hc" if high_contrast else "default"))
     description = f"Snapshot of {source_profile} at scale={source_scale} contrast={source_contrast}"
@@ -192,7 +235,8 @@ def snapshot(name: str, run_dir: Path) -> Profile:
         f'[profile]\nname = {json.dumps(name)}\ndescription = {json.dumps(description)}\n\n'
         f'[stack]\nauthority = {str(authority_enabled).lower()}\nsupervisor = "pf-sim"\n\n[shell]\nextra_args = []\n\n'
         f'[prefs]\ntext_scale = {json.dumps(text_scale)}\nhigh_contrast = {str(high_contrast).lower()}\n'
-        f'first_run_complete = {str(first_run_complete).lower()}\n')
+        f'first_run_complete = {str(first_run_complete).lower()}\n\n'
+        + _power_toml(batteries))
     result = load_profile(target, "home"); validate_profile(result); return result
 
 
