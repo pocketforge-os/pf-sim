@@ -38,20 +38,14 @@ def read_manifest() -> dict | None:
         return None
 
 
-AUTOMATION_ADAPTER_REVS = (
-    "99a95c27c5b9b1faed8110902e3fb0d95dcdf2a3",
-    "41ccb5c7d9f9b25a6063633a05da3b32c4b08763",
-)
-
-
-def build(force: bool = False, launcher_rev: str | None = None, automation_adapter: bool = False) -> dict:
+def build(force: bool = False, launcher_rev: str | None = None) -> dict:
     pins = load_pins()
     if launcher_rev is not None:
         if not all(character in "0123456789abcdefABCDEF" for character in launcher_rev) or not 7 <= len(launcher_rev) <= 40:
             raise ValueError("reason=invalid_launcher_rev")
         pins["launcher_rev"] = launcher_rev.lower()
     root = sim_home() / "toolchain"
-    cache_name = pins["launcher_rev"] + ("-automation" if automation_adapter else "")
+    cache_name = pins["launcher_rev"]
     revision_cache = root / "builds" / cache_name
     cached_manifest = revision_cache / "manifest.json"
     if cached_manifest.exists() and not force:
@@ -72,21 +66,6 @@ def build(force: bool = False, launcher_rev: str | None = None, automation_adapt
     subprocess.run(["git", "reset", "--hard"], cwd=source, check=True,
                    stdout=subprocess.DEVNULL)
     subprocess.run(["git", "checkout", "--detach", pins["launcher_rev"]], cwd=source, check=True)
-    if automation_adapter and "--automation-socket" not in (source / "crates/pf-shell/src/main.rs").read_text():
-        subprocess.run(["git", "fetch", "origin", *AUTOMATION_ADAPTER_REVS], cwd=source, check=True)
-        subprocess.run(["git", "cherry-pick", *AUTOMATION_ADAPTER_REVS], cwd=source, check=True)
-    if automation_adapter:
-        action_patch = Path(__file__).resolve().parent.parent / "patches" / "automation-action.patch"
-        subprocess.run(["git", "apply", "--check", str(action_patch)], cwd=source, check=True)
-        subprocess.run(["git", "apply", str(action_patch)], cwd=source, check=True)
-        automation_source = source / "crates/pf-shell/src/automation.rs"
-        body = automation_source.read_text()
-        # The scene adapter landed just after fixed_paint_scale was added to the
-        # runtime Node. Older audited layouts use the preceding Node shape.
-        if not any("fixed_paint_scale" in path.read_text() for path in
-                   (source / "crates/pf-shell-core/src").glob("*.rs")):
-            body = body.replace('"fixed_paint_scale":value.fixed_paint_scale,', "")
-            automation_source.write_text(body)
     runtime_repo, runtime_rev = derive_runtime((source / "Cargo.toml").read_text())
     target = root / "target"
     env = os.environ.copy()
@@ -116,9 +95,10 @@ def build(force: bool = False, launcher_rev: str | None = None, automation_adapt
         "device_contract_sha256": sha256(contract_target),
         "built_at": datetime.now(timezone.utc).isoformat(),
     }
-    if automation_adapter:
-        manifest["automation_adapter_revs"] = list(AUTOMATION_ADAPTER_REVS)
-        manifest["automation_action_patch_sha256"] = sha256(Path(__file__).resolve().parent.parent / "patches" / "automation-action.patch")
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=source, check=True,
+                           capture_output=True, text=True).stdout
+    if dirty:
+        raise RuntimeError("reason=launcher_source_dirty")
     revision_cache.mkdir(parents=True, exist_ok=True)
     shutil.copy2(bin_dir / "pf-shell", revision_cache / "pf-shell")
     shutil.copy2(bin_dir / "pf-session-authorityd", revision_cache / "pf-session-authorityd")

@@ -47,6 +47,23 @@ class MeasureTests(unittest.TestCase):
         self.assertAlmostEqual(low, 4.48, places=2); self.assertLess(low, 4.5)
         self.assertAlmostEqual(high, 4.67, places=2); self.assertGreater(high, 4.5)
 
+    def test_contrast_uses_box_fill_and_excludes_rounded_corner_bleed(self):
+        image = Image.new("RGB", (50, 30), (20, 20, 20))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((5, 5, 44, 24), radius=7, fill=(220, 220, 220))
+        draw.rectangle((17, 12, 32, 16), fill=(100, 100, 100))
+        node = {"id": "rounded", "role": "text", "bounds": [5, 5, 40, 20]}
+        value = contrast.measure(image, ink.measure_node(image, node), 4.5)
+        self.assertEqual(value["background_color"], [220, 220, 220])
+        self.assertEqual(value["ink_color"], [100, 100, 100])
+
+    def test_contrast_empty_box_is_no_ink(self):
+        image = Image.new("RGB", (30, 20), (80, 80, 80))
+        node = {"id": "empty", "role": "text", "bounds": [5, 5, 20, 10]}
+        value = contrast.measure(image, ink.measure_node(image, node), 4.5)
+        self.assertEqual(value["status"], "NO_INK")
+        self.assertIsNone(value["ratio"])
+
     def test_overlay_and_report_status(self):
         rendered = overlay.render(self.image, self.nodes, "b")
         self.assertEqual(rendered.size, self.image.size)

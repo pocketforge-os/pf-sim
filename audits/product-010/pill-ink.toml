@@ -1,18 +1,25 @@
 name = "pill-ink"
 instance = "audit-pill-ink"
 profile = "seeded-default"
-nodes = ["attention-pill", "attention"]
 
 [[phase]]
 name = "pre-fix"
+mode = "unreproducible"
 launcher_rev = "8a8ee1f"
-[[phase.expect]]
-kind = "negative_inset"
-node = "attention"
+reason = "the rev-native fixtures do not render the historical attention-pill state as a PNG with separable capsule and text regions"
+historical = [{ kind = "capsule", width = 188, height = 31, text_lines = 2, overhang = true }]
 
 [[phase]]
 name = "post-fix"
+mode = "fixture"
 launcher_rev = "91f88d5"
+fixture = "sim-frame"
+[[phase.region]]
+name = "attention"
+x = 1043
+y = 78
+w = 189
+h = 33
 [[phase.expect]]
 kind = "all_insets_nonnegative"
 node = "attention"

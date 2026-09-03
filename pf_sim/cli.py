@@ -42,7 +42,6 @@ def parser() -> argparse.ArgumentParser:
     tools = commands.add_parser("toolchain").add_subparsers(dest="toolchain_command", required=True)
     build = tools.add_parser("build"); build.add_argument("--force", action="store_true")
     build.add_argument("--launcher-rev")
-    build.add_argument("--automation-adapter", action="store_true", help=argparse.SUPPRESS)
     build.add_argument("--backend", choices=["desktop"], default="desktop")
     status = tools.add_parser("status"); status.add_argument("--json", action="store_true")
     status.add_argument("--backend", choices=["desktop"], default="desktop")
@@ -185,10 +184,13 @@ def main(argv=None) -> int:
             print(f"measure_status={value['status'].lower()} out={out}")
             return 1 if value["status"] == "FAIL" and not args.no_fail else 0
         if args.command == "audit":
-            reproduced, values = audit.run(args.path.resolve())
+            status, values = audit.run(args.path.resolve())
             print(json.dumps(values, sort_keys=True))
-            print(f"audit_status={'reproduced' if reproduced else 'not_reproduced'}")
-            return 0 if reproduced else 1
+            for value in values:
+                print(f"phase={value['phase']} mode={value['mode']} reproduced={value['reproduced']}"
+                      + (f" reason={value['reason']}" if value['mode'] == 'unreproducible' else ""))
+            print(f"audit_status={status}")
+            return 0 if status in ("reproduced", "partial") else 1
         if args.command == "app-hook":
             request = {"command": args.hook_command}
             if args.hook_command == "launch":
@@ -227,7 +229,7 @@ def main(argv=None) -> int:
             print(f"app_status={args.app_command} session={session}"); return 0
         if args.command == "toolchain":
             if args.toolchain_command == "build":
-                print(json.dumps(toolchain.build(args.force, args.launcher_rev, args.automation_adapter), sort_keys=True)); return 0
+                print(json.dumps(toolchain.build(args.force, args.launcher_rev), sort_keys=True)); return 0
             manifest = toolchain.read_manifest()
             if manifest is None:
                 print("toolchain_status=absent", file=sys.stderr); return 3

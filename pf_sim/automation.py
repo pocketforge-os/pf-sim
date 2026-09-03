@@ -50,6 +50,5 @@ class AutomationClient:
     def scene(self): return self.request({"op": "scene"})
     def capture(self, path: Path): return self.request({"op": "capture", "path": str(Path(path).resolve())})
     def text(self, value: str): return self.request({"op": "text", "value": value})
-    def action(self, value: str): return self.request({"op": "action", "value": value})
     def wait_idle(self, quiet_ms: int = 150, timeout_ms: int = 5000):
         return self.request({"op": "wait_idle", "quiet_ms": quiet_ms, "timeout_ms": timeout_ms}, timeout_ms / 1000 + 1)

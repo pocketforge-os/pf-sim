@@ -21,22 +21,35 @@ def ratio(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
 
 
 def measure(image: Image.Image, ink: dict, floor: float) -> dict | None:
-    extent, background = ink.get("ink_extents"), ink.get("dominant_background")
-    if not extent or background is None:
+    bounds = ink.get("declared_bounds")
+    if not bounds:
         return None
-    rgb = image.convert("RGB"); bg = tuple(background)
-    x0, y0 = extent["x"], extent["y"]
-    x1, y1 = x0 + extent["width"], y0 + extent["height"]
-    ink_colors = Counter(rgb.getpixel((x, y)) for y in range(max(0, y0), min(rgb.height, y1))
-                         for x in range(max(0, x0), min(rgb.width, x1)) if different(rgb.getpixel((x, y)), bg))
-    color = tuple(ink.get("dominant_ink") or (ink_colors.most_common(1)[0][0] if ink_colors else bg))
-    # The local ring is authoritative when it has a stable colour; the declared
-    # dominant is the fallback for boxes at a frame edge.
-    ring = []
-    for y in range(max(0, y0 - 2), min(rgb.height, y1 + 2)):
-        for x in range(max(0, x0 - 2), min(rgb.width, x1 + 2)):
-            if not (x0 <= x < x1 and y0 <= y < y1): ring.append(rgb.getpixel((x, y)))
-    local_bg = Counter(ring).most_common(1)[0][0] if ring else bg
-    value = ratio(color, local_bg)
-    return {"ink_color": list(color), "background_color": list(local_bg), "ratio": round(value, 4),
+    rgb = image.convert("RGB")
+    x0, y0 = bounds["x"], bounds["y"]
+    x1, y1 = x0 + bounds["width"], y0 + bounds["height"]
+    inside = [rgb.getpixel((x, y)) for y in range(max(0, y0), min(rgb.height, y1))
+              for x in range(max(0, x0), min(rgb.width, x1))]
+    if not inside:
+        return None
+    counts = Counter(inside); background = counts.most_common(1)[0][0]
+    ring = [rgb.getpixel((x, y)) for y in range(max(0, y0 - 2), min(rgb.height, y1 + 2))
+            for x in range(max(0, x0 - 2), min(rgb.width, x1 + 2))
+            if not (x0 <= x < x1 and y0 <= y < y1)]
+    outside = Counter(ring).most_common(1)[0][0] if ring else None
+    declared_background = ink.get("dominant_background")
+    if declared_background is not None and tuple(declared_background) != outside:
+        # Text bounds may contain more page bleed than fill at large scales.  The
+        # border-derived node background identifies the local box fill while the
+        # outside-ring exclusion prevents rounded page corners becoming ink.
+        background = tuple(declared_background)
+    minimum = max(2, int(len(inside) * .005))
+    candidates = [color for color, count in counts.items()
+                  if count >= minimum and different(color, background)
+                  and color != outside]
+    if not candidates:
+        return {"ink_color": None, "background_color": list(background), "ratio": None,
+                "floor": floor, "status": "NO_INK"}
+    color = max(candidates, key=lambda candidate: ratio(candidate, background))
+    value = ratio(color, background)
+    return {"ink_color": list(color), "background_color": list(background), "ratio": round(value, 4),
             "floor": floor, "status": "PASS" if value >= floor else "FAIL"}

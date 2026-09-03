@@ -85,8 +85,10 @@ Committed audit recipes pin launcher revisions and reproduce a finding end to en
 ./pf-simctl audit run audits/product-010/settings-caption-gap.toml
 ```
 
-The command prints the measured values followed by
-`audit_status=reproduced|not_reproduced`.
+Each phase explicitly uses scene data, a pinned revision's native pixel fixture, or an
+honestly documented unreproducible historical value. The command prints phase modes and
+measured values followed by `audit_status=reproduced|partial|not_reproduced`; `partial`
+means the post-fix result reproduced while a pre-fix state had no rev-native renderer.
 
 ## Input
 
