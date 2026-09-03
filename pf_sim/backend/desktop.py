@@ -5,6 +5,7 @@ import os
 import signal
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -146,6 +147,7 @@ class DesktopBackend(Backend):
             "contrast": contrast or ("hc" if profile and profile.high_contrast else "default"),
             "authority": profile.authority if profile else True,
             "shell_extra_args": list(profile.extra_args) if profile else [],
+            "supervisor": profile.supervisor if profile else "shell",
         }
         (path / "run.json").write_text(json.dumps(metadata, indent=2) + "\n")
         records: dict = {}
@@ -159,10 +161,20 @@ class DesktopBackend(Backend):
             if not self._wait_socket(xdg / socket_name, processes[-1][1]):
                 raise RuntimeError("reason=weston_died")
             if metadata["authority"]:
-                processes.append(("authorityd", self._spawn("authorityd", [str(authority), "--command-preset", "desktop-sim", "--state-dir", str(path / "authority"), "--socket", str(authority_socket)], path, records)))
+                ctl = repo_root() / "pf-simctl"
+                hook = f"{ctl} app-hook"
+                authority_command = [str(authority), "--command-preset", "desktop-sim", "--state-dir", str(path / "authority"), "--socket", str(authority_socket)]
+                if metadata["supervisor"] == "pf-sim":
+                    authority_command += ["--start-command", f"{hook} launch {{item_id}} {{session_id}} --run-dir {path}",
+                                          "--graceful-stop-command", f"{hook} stop {{session_id}} --run-dir {path}",
+                                          "--terminate-command", f"{hook} kill {{session_id}} --run-dir {path}",
+                                          "--activate-owner-command", f"{hook} activate --run-dir {path}"]
+                processes.append(("authorityd", self._spawn("authorityd", authority_command, path, records)))
                 if not self._wait_socket(authority_socket, processes[-1][1]):
                     raise RuntimeError("reason=authorityd_died")
-                processes.append(("supervisor", self._spawn("supervisor", [str(shell), "--desktop-sim-supervise", str(path / "authority"), "--session-socket", str(authority_socket)], path, records)))
+                supervisor_command = ([sys.executable, "-m", "pf_sim.supervisor", "--run-dir", str(path), "--authority-socket", str(authority_socket), "--wayland-display", socket_name]
+                                      if metadata["supervisor"] == "pf-sim" else [str(shell), "--desktop-sim-supervise", str(path / "authority"), "--session-socket", str(authority_socket)])
+                processes.append(("supervisor", self._spawn("supervisor", supervisor_command, path, records)))
                 time.sleep(0.5)
                 if processes[-1][1].poll() is not None:
                     raise RuntimeError("reason=supervisor_died")
@@ -185,7 +197,12 @@ class DesktopBackend(Backend):
         except (FileNotFoundError, json.JSONDecodeError): raise RuntimeError("reason=instance_not_running")
         if self.status(instance)["state"] == "down": raise RuntimeError("reason=instance_not_running")
         records = self._records(path)
-        plan = restart_plan(bool(meta.get("authority", True)), profile.authority)
+        plan = restart_plan(
+            bool(meta.get("authority", True)),
+            str(meta.get("supervisor", "shell")),
+            profile.authority,
+            profile.supervisor,
+        )
         for sig in (signal.SIGTERM, signal.SIGKILL):
             for name in plan:
                 record = records.get(name)
@@ -206,14 +223,20 @@ class DesktopBackend(Backend):
         meta.update(profile=profile.name,
                     scale=scale or profile.text_scale.removesuffix("%"),
                     contrast=contrast or ("hc" if profile.high_contrast else "default"),
-                    authority=profile.authority, shell_extra_args=list(profile.extra_args))
+                    authority=profile.authority, shell_extra_args=list(profile.extra_args), supervisor=profile.supervisor)
         (path / "run.json").write_text(json.dumps(meta, indent=2) + "\n")
         shell, authority = meta["shell_bin"], meta["authorityd_bin"]
         authority_socket = path / "session-authority.sock"
         if profile.authority and "authorityd" in plan:
-            process = self._spawn("authorityd", [authority, "--command-preset", "desktop-sim", "--state-dir", str(path / "authority"), "--socket", str(authority_socket)], path, records)
+            ctl = repo_root() / "pf-simctl"; hook = f"{ctl} app-hook"
+            command = [authority, "--command-preset", "desktop-sim", "--state-dir", str(path / "authority"), "--socket", str(authority_socket)]
+            if profile.supervisor == "pf-sim":
+                command += ["--start-command", f"{hook} launch {{item_id}} {{session_id}} --run-dir {path}", "--graceful-stop-command", f"{hook} stop {{session_id}} --run-dir {path}", "--terminate-command", f"{hook} kill {{session_id}} --run-dir {path}", "--activate-owner-command", f"{hook} activate --run-dir {path}"]
+            process = self._spawn("authorityd", command, path, records)
             if not self._wait_socket(authority_socket, process): raise RuntimeError("reason=authorityd_died")
-            process = self._spawn("supervisor", [shell, "--desktop-sim-supervise", str(path / "authority"), "--session-socket", str(authority_socket)], path, records)
+            supervisor_command = ([sys.executable, "-m", "pf_sim.supervisor", "--run-dir", str(path), "--authority-socket", str(authority_socket), "--wayland-display", meta["weston_socket"]]
+                                  if profile.supervisor == "pf-sim" else [shell, "--desktop-sim-supervise", str(path / "authority"), "--session-socket", str(authority_socket)])
+            process = self._spawn("supervisor", supervisor_command, path, records)
             time.sleep(.5)
             if process.poll() is not None: raise RuntimeError("reason=supervisor_died")
         env = os.environ.copy(); env.update(self.shell_display_env(meta["weston_socket"]))

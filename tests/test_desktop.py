@@ -3,10 +3,13 @@ import os
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
 
 from pf_sim.backend.desktop import COMPONENTS, DesktopBackend, proc_start
+from pf_sim.profiles import resolve_profile
 
 
 FAKE = Path(__file__).parent / "fakebins" / "fake-component"
@@ -97,3 +100,34 @@ class DesktopTests(unittest.TestCase):
             self.assertIn("weston_socket_missing", status["degraded_reasons"])
         finally:
             process.terminate(); process.wait()
+
+    def test_pf_sim_supervisor_authority_overrides(self):
+        commands = []
+        process = Mock(pid=os.getpid()); process.poll.return_value = None
+        def spawn(name, command, path, records, env=None):
+            commands.append((name, command)); return process
+        with patch.object(self.backend, "_spawn", side_effect=spawn), patch.object(self.backend, "_wait_socket", return_value=True):
+            self.backend.up(shell_bin=self.bin/"pf-shell", authorityd_bin=self.bin/"pf-session-authorityd", profile=resolve_profile("seeded-default"))
+        authority = next(command for name,command in commands if name=="authorityd")
+        supervisor = next(command for name,command in commands if name=="supervisor")
+        for flag in ("--start-command","--graceful-stop-command","--terminate-command","--activate-owner-command"):
+            self.assertIn(flag,authority)
+        self.assertEqual(supervisor[1:3],["-m","pf_sim.supervisor"])
+
+    def test_apply_supervisor_change_restarts_supervisor_and_authority(self):
+        self.backend.up(
+            shell_bin=self.bin / "pf-shell",
+            authorityd_bin=self.bin / "pf-session-authorityd",
+            profile=resolve_profile("seeded-default"),
+        )
+        run = self.home / "runs/default"
+        before = json.loads((run / "pids.json").read_text())
+
+        shell_profile = replace(resolve_profile("seeded-default"), supervisor="shell")
+        self.backend.apply("default", shell_profile, None, None)
+
+        after = json.loads((run / "pids.json").read_text())
+        self.assertNotEqual(after["authorityd"]["pid"], before["authorityd"]["pid"])
+        self.assertNotEqual(after["supervisor"]["pid"], before["supervisor"]["pid"])
+        command = Path(f"/proc/{after['supervisor']['pid']}/cmdline").read_bytes().split(b"\0")
+        self.assertIn(b"--desktop-sim-supervise", command)

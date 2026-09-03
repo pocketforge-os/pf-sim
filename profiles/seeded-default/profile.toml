@@ -3,6 +3,7 @@ name = "seeded-default"
 description = "Normal seeded shell with two catalog favorites"
 [stack]
 authority = true
+supervisor = "pf-sim"
 [shell]
 extra_args = []
 [prefs]

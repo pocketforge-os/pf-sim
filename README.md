@@ -90,3 +90,23 @@ running tests with `sudo modprobe uinput && sudo chmod 666 /dev/uinput`. CI sets
 - `profiles/` contains committed state-only simulator profiles.
 - `tests/` contains hermetic `unittest` coverage and fake lifecycle components.
 - `$PF_SIM_HOME/` holds generated binaries, run state, snapshots, and captures.
+## Fixture apps and sessions
+
+Every shipped profile uses pf-sim's session supervisor by default. Launch a deterministic
+Wayland fixture without navigating the shell, inspect it, and exercise clean or crash
+receipts through the same session-authority protocol used by the device:
+
+```sh
+./pf-simctl up --profile seeded-default
+./pf-simctl launch ridgeline
+./pf-simctl app status
+./pf-simctl app crash
+./pf-simctl history --json
+./pf-simctl launch hollow-tides
+./pf-simctl safe-return
+```
+
+`app list` prints fixture behaviours. Files in `fixtures/apps/` select `stay`,
+`exit:<code>`, `crash`, or `instant-exit`, an optional launch delay, and a 1280×720
+test pattern shown by `weston-image`. Set `[stack] supervisor = "shell"` in a custom
+profile only when checking parity with the launcher's desktop-sim supervisor.

@@ -9,6 +9,10 @@ from pathlib import Path
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
 from . import capture, doctor, gamepad, inputs, keys, profiles, toolchain
+from . import capture, doctor, keys, profiles, toolchain
+from .authority import AuthorityClient
+from .fixture_app import fixture_config, send_command
+from .supervisor import hook
 
 
 def backend(name: str):
@@ -70,6 +74,17 @@ def parser() -> argparse.ArgumentParser:
     sequence.add_argument("--instance", default="default")
     sequence.add_argument("--hold-ms", type=int, default=60); sequence.add_argument("--gap-ms", type=int, default=120)
     listing = input_commands.add_parser("list"); listing.add_argument("--instance", default="default")
+    for name in ("launch", "safe-return", "history"):
+        command = commands.add_parser(name); command.add_argument("--instance", default="default")
+        if name == "launch": command.add_argument("item_id")
+        if name == "history": command.add_argument("--json", action="store_true")
+    app = commands.add_parser("app").add_subparsers(dest="app_command", required=True)
+    for name in ("status", "exit", "crash", "quit", "list"):
+        command = app.add_parser(name); command.add_argument("--instance", default="default")
+        if name == "exit": command.add_argument("code", type=int)
+    app_hook = commands.add_parser("app-hook")
+    app_hook.add_argument("hook_command", choices=("launch", "stop", "kill", "activate")); app_hook.add_argument("values", nargs="*")
+    app_hook.add_argument("--run-dir", required=True, type=Path)
     return root
 
 
@@ -90,11 +105,49 @@ def main(argv=None) -> int:
             validate_name("profile", args.name)
         elif args.command == "up":
             validate_name("profile", args.profile)
+        elif args.command == "launch":
+            validate_name("item", args.item_id)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
     try:
         if args.command == "doctor": return doctor.run()
+        if args.command == "app-hook":
+            request = {"command": args.hook_command}
+            if args.hook_command == "launch":
+                if len(args.values) != 2: raise ValueError("reason=invalid_hook_arguments")
+                request.update(item_id=validate_name("item", args.values[0]), session_id=validate_name("session", args.values[1]))
+            elif args.hook_command in ("stop", "kill"):
+                if len(args.values) != 1: raise ValueError("reason=invalid_hook_arguments")
+                request["session_id"] = validate_name("session", args.values[0])
+            elif args.values: raise ValueError("reason=invalid_hook_arguments")
+            response = hook(args.run_dir.resolve() / "supervisor.sock", request)
+            return 0 if response.get("status") in ("ok", "not_running") else 1
+        if args.command == "app" and args.app_command == "list":
+            items = json.loads((Path(__file__).parent.parent / "fixtures/catalog-snapshot.json").read_text())["items"]
+            print("\n".join(f"item={i['id']} behaviour={fixture_config(i['id'])['behaviour']}" for i in items))
+            return 0
+        if args.command in ("launch", "safe-return", "history", "app"):
+            path = run_dir(args.instance); client = AuthorityClient(path / "session-authority.sock")
+            if args.command == "launch":
+                result = client.launch(args.item_id); status = result.get("result")
+                print(f"launch_status={'ok' if status == 'accepted' else status}"
+                      + (f" session={result['session_id']}" if "session_id" in result else ""))
+                return 0 if status == "accepted" else 1
+            if args.command == "safe-return": client.safe_return(); print("safe_return_status=ok"); return 0
+            entries = client.history()
+            if args.command == "history":
+                print(json.dumps(entries, indent=2, sort_keys=True) if args.json else "\n".join(_history_line(e) for e in entries)); return 0
+            active = next((e for e in reversed(entries) if e.get("receipt") is None), None)
+            if active is None: print("app_status=none"); return 3 if args.app_command == "status" else 1
+            session = validate_name("session", active["session_id"])
+            socket_path = path / "apps" / (session + ".sock")
+            marker = path / "authority/sessions" / (session + ".running")
+            if args.app_command == "status":
+                state = "running" if socket_path.exists() else "launching" if marker.exists() or active else "none"
+                print(f"app_status={state} session={session} item={active.get('item_id', '')}"); return 0
+            response = send_command(socket_path, {"command": args.app_command, **({"code": args.code} if args.app_command == "exit" else {})})
+            print(f"app_status={args.app_command} session={session}"); return 0
         if args.command == "toolchain":
             if args.toolchain_command == "build":
                 print(json.dumps(toolchain.build(args.force), sort_keys=True)); return 0
@@ -107,7 +160,7 @@ def main(argv=None) -> int:
                 items = [{"name": p.name, "description": p.description, "source": p.source} for p in profiles.list_profiles()]
                 print(json.dumps(items, indent=2) if args.json else "\n".join(f"profile={p['name']} source={p['source']} description={p['description']}" for p in items)); return 0
             if args.profile_command == "show":
-                p = profiles.resolve_profile(args.name); print(json.dumps({"name": p.name, "description": p.description, "source": p.source, "authority": p.authority, "text_scale": p.text_scale, "high_contrast": p.high_contrast, "first_run_complete": p.first_run_complete}, indent=2)); return 0
+                p = profiles.resolve_profile(args.name); print(json.dumps({"name": p.name, "description": p.description, "source": p.source, "authority": p.authority, "supervisor": p.supervisor, "text_scale": p.text_scale, "high_contrast": p.high_contrast, "first_run_complete": p.first_run_complete}, indent=2)); return 0
             if args.profile_command == "validate":
                 profiles.validate_profile(profiles.resolve_profile(args.name, allow_path=True)); print(f"validate_status=ok profile={args.name}"); return 0
             if args.profile_command == "snapshot":
@@ -178,3 +231,9 @@ def main(argv=None) -> int:
         prefix = "up_status=failed" if args.command == "up" else "command_status=failed"
         print(f"{prefix} {reason}{hint}", file=sys.stderr)
         return 1
+
+
+def _history_line(entry: dict) -> str:
+    receipt = entry.get("receipt")
+    if isinstance(receipt, dict): receipt = receipt.get("kind", next(iter(receipt), "none"))
+    return f"session={entry.get('session_id', '')} item={entry.get('item_id', '')} receipt={receipt or 'open'}"

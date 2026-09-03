@@ -49,4 +49,15 @@ jobs:
           ./pf-simctl status --json
           ./pf-simctl down
           ./pf-simctl up --display headless --profile seeded-default
+          ./pf-simctl launch ridgeline
+          for n in $(seq 1 50); do ./pf-simctl app status | grep -q 'app_status=running' && break; sleep .1; done
+          ./pf-simctl app status | grep 'app_status=running'
+          ./pf-simctl history --json | grep '"receipt": null'
+          ./pf-simctl app crash
+          for n in $(seq 1 50); do ./pf-simctl history --json | grep -q 'Crash' && break; sleep .1; done
+          ./pf-simctl history --json | grep 'Crash'
+          ./pf-simctl launch hollow-tides
+          ./pf-simctl safe-return
+          for n in $(seq 1 50); do ./pf-simctl history | grep -q 'Returned' && break; sleep .1; done
+          ./pf-simctl history | grep 'Returned'
           ./pf-simctl down
