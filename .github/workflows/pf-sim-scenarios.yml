@@ -89,7 +89,12 @@ jobs:
       - name: Wrapper is cwd-independent
         run: cd /tmp && "$GITHUB_WORKSPACE/pf-simctl" --help >/dev/null
       - name: Enable uinput
-        run: sudo modprobe uinput && sudo chmod 666 /dev/uinput
+        run: |
+          sudo modprobe uinput
+          sudo chmod 666 /dev/uinput
+          echo 'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pocketforge-sim-gamepad:*", MODE="0666"' | sudo tee /etc/udev/rules.d/99-pf-sim-gamepad.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --subsystem-match=input
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -153,4 +158,4 @@ jobs:
             ${{ runner.temp }}/pf-sim-home/scenarios
             matrix-report
             *.audit.txt
-          if-no-files-found: error
+          if-no-files-found: warn

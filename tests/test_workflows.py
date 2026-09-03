@@ -6,6 +6,17 @@ class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 
+    def named_step(self, workflow_name, name):
+        lines = (self.workflows / workflow_name).read_text().splitlines()
+        start = next(index for index, line in enumerate(lines)
+                     if line.strip() == f"- name: {name}")
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        end = next((index for index in range(start + 1, len(lines))
+                    if lines[index].strip().startswith("- ")
+                    and len(lines[index]) - len(lines[index].lstrip()) == indent),
+                   len(lines))
+        return "\n".join(lines[start:end])
+
     def test_reusable_workflow_checks_out_pf_sim_at_selected_ref(self):
         workflow = self.workflows / "pf-sim-scenarios.yml"
         lines = workflow.read_text().splitlines()
@@ -52,6 +63,18 @@ class WorkflowTests(unittest.TestCase):
                     else:
                         self.assertNotIn("runner.", line, workflow_name)
                         self.assertNotIn("steps.", line, workflow_name)
+
+    def test_reusable_workflow_configures_simulated_gamepad_event_nodes(self):
+        step = self.named_step("pf-sim-scenarios.yml", "Enable uinput")
+
+        self.assertIn("/etc/udev/rules.d/99-pf-sim-gamepad.rules", step)
+        self.assertIn('ATTRS{name}=="pocketforge-sim-gamepad:*"', step)
+        self.assertIn("sudo udevadm control --reload-rules", step)
+
+    def test_artifact_upload_tolerates_early_failure(self):
+        workflow = (self.workflows / "pf-sim-scenarios.yml").read_text()
+
+        self.assertIn("if-no-files-found: warn", workflow)
 
 
 if __name__ == "__main__":
