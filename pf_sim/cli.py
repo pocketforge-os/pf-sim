@@ -133,8 +133,7 @@ def main(argv=None) -> int:
                 print(f"gamepad_status=created event_node={result['event_node']}")
                 return 0
             if args.gamepad_command == "destroy":
-                stopped = gamepad.destroy(args.instance)
-                print(f"gamepad_status={'destroyed' if stopped else 'absent'}")
+                print(f"gamepad_status={gamepad.destroy(args.instance)}")
                 return 0
             result = gamepad.status(args.instance)
             if args.json:

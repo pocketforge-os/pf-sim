@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
+import secrets
 import signal
 import socket
 import struct
@@ -92,6 +94,30 @@ def _paths(instance: str) -> tuple[Path, Path]:
     return root / "gamepad.sock", root / "gamepad.json"
 
 
+@contextlib.contextmanager
+def _lifecycle_lock(instance: str):
+    root = run_dir(instance)
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "gamepad.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def proc_start(pid: int) -> int | None:
+    """Return Linux /proc starttime (field 22), which is stable across PID reuse."""
+    try:
+        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
+    except (FileNotFoundError, ProcessLookupError, ValueError, IndexError, PermissionError):
+        return None
+
+
+def _identity_matches(state: dict) -> bool:
+    try:
+        return proc_start(int(state["pid"])) == int(state["start_time"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def request(instance: str, command: dict, timeout: float = 3.0) -> dict:
     sock_path, _ = _paths(instance)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -124,62 +150,110 @@ def status(instance: str) -> dict:
         state = json.loads(state_path.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         return {"state": "absent", "pid_alive": False, "node_present": False}
-    alive = _alive(int(state["pid"]))
-    present = Path(state["event_node"]).exists()
-    return {**state, "state": "up" if alive and present else "degraded",
+    alive = _identity_matches(state)
+    present = bool(state.get("event_node")) and Path(state["event_node"]).exists()
+    authenticated = False
+    if alive and present and state.get("token"):
+        try:
+            authenticated = request(instance, {"command": "status"}, timeout=0.25).get("token") == state["token"]
+        except (OSError, RuntimeError, json.JSONDecodeError):
+            pass
+    return {**state, "state": "up" if alive and present and authenticated else "degraded",
             "pid_alive": alive, "node_present": present}
+
+
+def _wait_dead(pid: int, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        child = next((item for item in _children.values() if item.pid == pid), None)
+        if child is not None:
+            child.poll()
+        else:
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except (ChildProcessError, ProcessLookupError):
+                pass
+        if not _alive(pid):
+            return True
+        time.sleep(0.02)
+    return not _alive(pid)
+
+
+def _stop_recorded_holder(instance: str, state: dict) -> bool:
+    """Stop only the process whose non-reusable identity is recorded in state."""
+    if not _identity_matches(state):
+        return False
+    pid = int(state["pid"])
+    token = state.get("token")
+    try:
+        response = request(instance, {"command": "quit"}, timeout=0.5)
+        if not token or response.get("token") != token:
+            raise RuntimeError("reason=holder_token_mismatch")
+    except (OSError, RuntimeError, json.JSONDecodeError):
+        # Recheck immediately before signalling: the holder could have exited and
+        # its PID could have been recycled while the socket request was failing.
+        if _identity_matches(state):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    if not _wait_dead(pid):
+        raise RuntimeError("reason=gamepad_holder_would_not_stop")
+    _children.pop(instance, None)
+    return True
 
 
 def create(instance: str) -> dict:
     validate_instance(instance)
-    current = status(instance)
-    if current["state"] == "up":
-        return current
-    root = run_dir(instance)
-    root.mkdir(parents=True, exist_ok=True)
-    sock_path, state_path = _paths(instance)
-    sock_path.unlink(missing_ok=True)
-    state_path.unlink(missing_ok=True)
-    _children[instance] = subprocess.Popen(
-        [sys.executable, "-m", "pf_sim.gamepad", "--hold", "--instance", instance],
-        start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL, close_fds=True)
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        result = status(instance)
-        if result["state"] == "up" and sock_path.exists():
-            return result
-        time.sleep(0.03)
-    raise RuntimeError("reason=gamepad_create_failed")
+    with _lifecycle_lock(instance):
+        current = status(instance)
+        if current["state"] == "up":
+            return current
+        sock_path, state_path = _paths(instance)
+        if current.get("pid_alive"):
+            _stop_recorded_holder(instance, current)
+        sock_path.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        token = secrets.token_hex(16)
+        child = subprocess.Popen(
+            [sys.executable, "-m", "pf_sim.gamepad", "--hold", "--instance", instance,
+             "--token", token],
+            start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, close_fds=True)
+        _children[instance] = child
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            result = status(instance)
+            if result["state"] == "up" and result.get("token") == token:
+                return result
+            time.sleep(0.03)
+        # A timeout must not turn the attempted create into an unreachable device.
+        # The process object supplies the identity even when state publication failed.
+        spawned = {"pid": child.pid, "start_time": proc_start(child.pid), "token": token}
+        if spawned["start_time"] is not None:
+            _stop_recorded_holder(instance, spawned)
+        sock_path.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        raise RuntimeError("reason=gamepad_create_failed")
 
 
-def destroy(instance: str) -> bool:
-    _, state_path = _paths(instance)
-    try:
-        state = json.loads(state_path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        return False
-    try:
-        request(instance, {"command": "quit"})
-    except (OSError, RuntimeError, json.JSONDecodeError):
+def destroy(instance: str) -> str:
+    validate_instance(instance)
+    with _lifecycle_lock(instance):
+        sock_path, state_path = _paths(instance)
         try:
-            os.kill(int(state["pid"]), signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-    deadline = time.monotonic() + 2
-    while _alive(int(state["pid"])) and time.monotonic() < deadline:
-        time.sleep(0.02)
-    child = _children.pop(instance, None)
-    if child is not None:
-        try:
-            child.wait(timeout=0.1)
-        except subprocess.TimeoutExpired:
-            pass
-    state_path.unlink(missing_ok=True)
-    return True
+            state = json.loads(state_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return "absent"
+        stopped = _stop_recorded_holder(instance, state)
+        # At this point a matching holder is verified dead. With a stale identity,
+        # the recorded PID was deliberately left untouched.
+        sock_path.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        return "destroyed" if stopped else "stale_cleaned"
 
 
-def hold(instance: str) -> int:
+def hold(instance: str, token: str) -> int:
     contract = DeviceContract.load()
     root = run_dir(instance)
     root.mkdir(parents=True, exist_ok=True)
@@ -193,7 +267,8 @@ def hold(instance: str) -> int:
         event_node = find_event_node(exclude=existing_nodes)
         server.bind(str(sock_path))
         server.listen(4)
-        state_path.write_text(json.dumps({"pid": os.getpid(), "event_node": event_node,
+        state_path.write_text(json.dumps({"pid": os.getpid(), "start_time": proc_start(os.getpid()),
+                                          "token": token, "event_node": event_node,
                                           "sysfs_name": DEVICE_NAME,
                                           "created_at": datetime.now(timezone.utc).isoformat()},
                                          sort_keys=True) + "\n")
@@ -215,7 +290,7 @@ def hold(instance: str) -> int:
                         running = False
                     else:
                         raise ValueError("reason=unknown_gamepad_command")
-                    response = {"status": "ok", "event_node": event_node}
+                    response = {"status": "ok", "event_node": event_node, "token": token}
                 except (ValueError, KeyError, TypeError) as error:
                     response = {"status": "error", "reason": str(error)}
                 connection.sendall(json.dumps(response).encode() + b"\n")
@@ -231,8 +306,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hold", action="store_true", required=True)
     parser.add_argument("--instance", default="default")
+    parser.add_argument("--token", required=True)
     args = parser.parse_args(argv)
-    return hold(validate_instance(args.instance))
+    return hold(validate_instance(args.instance), args.token)
 
 
 if __name__ == "__main__":

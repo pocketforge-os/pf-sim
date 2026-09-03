@@ -1,10 +1,12 @@
 import json
+import os
 import socket
+import subprocess
 import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pf_sim import gamepad
 
@@ -45,3 +47,94 @@ class ProtocolTests(unittest.TestCase):
             thread.join()
             self.assertTrue(received[0].endswith(b"\n"))
             self.assertEqual(json.loads(received[0]), {"command": "press", "code": 305})
+
+
+class LifecycleTests(unittest.TestCase):
+    def test_two_concurrent_creates_start_exactly_one_holder(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            root = Path(tmp) / "runs" / "race"
+            spawns = []
+
+            def fake_popen(command, **_kwargs):
+                token = command[-1]
+                spawns.append(token)
+                root.mkdir(parents=True, exist_ok=True)
+                (root / "gamepad.json").write_text(json.dumps({"pid": 123, "start_time": 456,
+                    "token": token, "event_node": "/dev/input/event-test"}))
+                return Mock(pid=123)
+
+            def fake_status(_instance):
+                if not spawns:
+                    return {"state": "absent", "pid_alive": False, "node_present": False}
+                return {"state": "up", "pid_alive": True, "node_present": True,
+                        "pid": 123, "start_time": 456, "token": spawns[0],
+                        "event_node": "/dev/input/event-test"}
+
+            results = []
+            with patch.object(gamepad.subprocess, "Popen", side_effect=fake_popen), \
+                 patch.object(gamepad, "status", side_effect=fake_status):
+                threads = [threading.Thread(target=lambda: results.append(gamepad.create("race")))
+                           for _ in range(2)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(2)
+            self.assertEqual(len(results), 2)
+            self.assertEqual(len(spawns), 1)
+            self.assertTrue((root / "gamepad.json").is_file())
+
+    def test_create_degraded_stops_old_holder_before_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            old = subprocess.Popen(["sleep", "30"])
+            old_state = {"state": "degraded", "pid_alive": True, "node_present": False,
+                         "pid": old.pid, "start_time": gamepad.proc_start(old.pid), "token": "old",
+                         "event_node": "/missing"}
+            replacement = Mock(pid=987654)
+            replacement.poll.return_value = None
+            states = [old_state, {"state": "up", "pid_alive": True, "node_present": True,
+                                  "pid": replacement.pid, "start_time": 1, "token": "new",
+                                  "event_node": "/dev/input/event-test"}]
+
+            def fake_popen(command, **_kwargs):
+                states[1]["token"] = command[-1]
+                self.assertIsNotNone(old.poll(), "replacement started before old holder died")
+                return replacement
+
+            try:
+                with patch.object(gamepad, "status", side_effect=states), \
+                     patch.object(gamepad, "request", side_effect=FileNotFoundError), \
+                     patch.object(gamepad.subprocess, "Popen", side_effect=fake_popen):
+                    result = gamepad.create("degraded")
+                self.assertEqual(result["pid"], replacement.pid)
+                self.assertIsNotNone(old.poll())
+            finally:
+                if old.poll() is None:
+                    old.terminate()
+                    old.wait()
+
+    def test_destroy_does_not_signal_reused_pid(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            decoy = subprocess.Popen(["sleep", "30"])
+            root = Path(tmp) / "runs" / "stale"
+            root.mkdir(parents=True)
+            (root / "gamepad.json").write_text(json.dumps({"pid": decoy.pid,
+                "start_time": gamepad.proc_start(decoy.pid) + 1, "token": "stale",
+                "event_node": "/missing"}))
+            try:
+                self.assertEqual(gamepad.destroy("stale"), "stale_cleaned")
+                self.assertIsNone(decoy.poll(), "destroy signalled a mismatched PID")
+            finally:
+                decoy.terminate()
+                decoy.wait()
+
+    def test_destroy_terminates_matching_identity(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            holder = subprocess.Popen(["sleep", "30"])
+            root = Path(tmp) / "runs" / "matching"
+            root.mkdir(parents=True)
+            (root / "gamepad.json").write_text(json.dumps({"pid": holder.pid,
+                "start_time": gamepad.proc_start(holder.pid), "token": "matching",
+                "event_node": "/missing"}))
+            with patch.object(gamepad, "request", side_effect=FileNotFoundError):
+                self.assertEqual(gamepad.destroy("matching"), "destroyed")
+            self.assertIsNotNone(holder.poll())
