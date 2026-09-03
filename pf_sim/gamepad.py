@@ -66,6 +66,16 @@ def find_event_node(sysname: str, timeout: float = 2.0,
     raise RuntimeError("reason=event_node_timeout")
 
 
+def wait_event_node_readable(event_node: str, timeout: float = 1.0) -> bool:
+    """Allow udev time to finish applying ownership/mode to a new event node."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if os.access(event_node, os.R_OK):
+            return True
+        time.sleep(0.02)
+    return os.access(event_node, os.R_OK)
+
+
 class UInputDevice:
     def __init__(self, codes: list[int], instance: str):
         self.fd = os.open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK)
@@ -229,6 +239,15 @@ def create(instance: str) -> dict:
         while time.monotonic() < deadline:
             result = status(instance)
             if result["state"] == "up" and result.get("token") == token:
+                if not wait_event_node_readable(result["event_node"]):
+                    _stop_recorded_holder(instance, result)
+                    sock_path.unlink(missing_ok=True)
+                    state_path.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        "reason=event_node_unreadable "
+                        "hint=add your user to the 'input' group or install the udev rule "
+                        "in docs/gui-dev-loop.md"
+                    )
                 return result
             time.sleep(0.03)
         # A timeout must not turn the attempted create into an unreachable device.

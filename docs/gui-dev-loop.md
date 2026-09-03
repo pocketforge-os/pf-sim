@@ -18,6 +18,25 @@ The complete GUI workflow will land in P5. For now, the desktop simulator lifecy
 
 Use `--display windowed` from a desktop session when interactive viewing is needed.
 
+The simulator user must be able to read the udev-created `/dev/input/event*` node. On a
+developer machine, add the user to the `input` group and start a new login session:
+
+```sh
+sudo usermod -aG input "$USER"
+```
+
+For CI or another intentionally shared simulator host, install this narrowly matched
+udev rule, then reload it:
+
+```sh
+echo 'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pocketforge-sim-gamepad:*", MODE="0666"' | sudo tee /etc/udev/rules.d/99-pf-sim-gamepad.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=input
+```
+
+`pf-simctl doctor` reports `event_node_access=ok|unreadable`; `gamepad create` also
+fails with a direct remediation hint if the actual node is unreadable.
+
 Input travels through the virtual evdev gamepad and the launcher's real `pf-input-map`; each input
 verb waits until the resulting shell frame is presented. Search text uses the automation-only
 `text VALUE`/`text --clear` path because no on-device keyboard exists.

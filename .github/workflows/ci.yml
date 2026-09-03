@@ -14,7 +14,12 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y weston libxkbcommon-dev pkg-config python3-pil
       - name: Enable uinput
-        run: sudo modprobe uinput && sudo chmod 666 /dev/uinput
+        run: |
+          sudo modprobe uinput
+          sudo chmod 666 /dev/uinput
+          echo 'SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="pocketforge-sim-gamepad:*", MODE="0666"' | sudo tee /etc/udev/rules.d/99-pf-sim-gamepad.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --subsystem-match=input
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -73,3 +78,10 @@ jobs:
           for n in $(seq 1 50); do ./pf-simctl history | grep -q 'Returned' && break; sleep .1; done
           ./pf-simctl history | grep 'Returned'
           ./pf-simctl down
+      - name: Dump simulator failure evidence
+        if: failure()
+        run: |
+          find "$HOME/.local/state/pf-sim/runs" -type f \( -path '*/logs/*.log' -o -name run.json \) -print0 2>/dev/null | while IFS= read -r -d '' file; do
+            echo "===== $file ====="
+            sed -n '1,400p' "$file"
+          done

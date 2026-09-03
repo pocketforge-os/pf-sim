@@ -65,6 +65,29 @@ class ProtocolTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_create_rejects_unreadable_event_node_and_cleans_holder(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            child = Mock(pid=123)
+            state = {"state": "up", "pid_alive": True, "node_present": True,
+                     "pid": 123, "start_time": 456, "token": "placeholder",
+                     "event_node": "/dev/input/event-test"}
+
+            def fake_popen(command, **_kwargs):
+                state["token"] = command[-1]
+                return child
+
+            with patch.object(gamepad.subprocess, "Popen", side_effect=fake_popen), \
+                    patch.object(gamepad, "status", side_effect=[
+                        {"state": "absent", "pid_alive": False, "node_present": False}, state]), \
+                    patch.object(gamepad, "wait_event_node_readable", return_value=False), \
+                    patch.object(gamepad, "_stop_recorded_holder", return_value=True) as stop, \
+                    self.assertRaisesRegex(RuntimeError, "reason=event_node_unreadable"):
+                gamepad.create("unreadable")
+            stop.assert_called_once_with("unreadable", state)
+            root = Path(tmp) / "runs/unreadable"
+            self.assertFalse((root / "gamepad.sock").exists())
+            self.assertFalse((root / "gamepad.json").exists())
+
     def test_two_concurrent_creates_start_exactly_one_holder(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
             root = Path(tmp) / "runs" / "race"
