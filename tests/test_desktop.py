@@ -43,6 +43,15 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.backend.down("default"))
         self.assertEqual(self.backend.status("default")["state"], "down")
 
+    def test_down_uses_recorded_runtime_directory(self):
+        self.up()
+        socket_path = self.xdg / "pf-sim-default"
+        self.assertTrue(socket_path.exists())
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+            self.assertTrue(self.backend.down("default"))
+        self.assertFalse(socket_path.exists())
+
     def test_failure_tears_down_started_components(self):
         with patch.dict(os.environ, {"PF_FAKE_DIE": "shell"}), self.assertRaisesRegex(RuntimeError, "shell_died"):
             self.up()
@@ -61,6 +70,20 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(self.backend.status("default")["state"], "degraded")
             record = {"pid": process.pid, "start_time": proc_start(process.pid)}
             (run / "pids.json").write_text(json.dumps({name: record for name in COMPONENTS}))
+            (run / "run.json").write_text(json.dumps({"weston_socket": "pf-sim-default", "xdg_runtime_dir": str(self.xdg)}))
+            (self.xdg / "pf-sim-default").touch()
+            (run / "session-authority.sock").touch()
             self.assertEqual(self.backend.status("default")["state"], "up")
+
+            (run / "session-authority.sock").unlink()
+            status = self.backend.status("default")
+            self.assertEqual(status["state"], "degraded")
+            self.assertIn("authority_socket_missing", status["degraded_reasons"])
+
+            (run / "session-authority.sock").touch()
+            (self.xdg / "pf-sim-default").unlink()
+            status = self.backend.status("default")
+            self.assertEqual(status["state"], "degraded")
+            self.assertIn("weston_socket_missing", status["degraded_reasons"])
         finally:
             process.terminate(); process.wait()

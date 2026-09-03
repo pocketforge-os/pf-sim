@@ -5,7 +5,7 @@ import json
 import sys
 
 from .backend import DesktopBackend
-from .config import run_dir
+from .config import run_dir, validate_instance
 from . import doctor, toolchain
 
 
@@ -37,6 +37,12 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
+    if hasattr(args, "instance"):
+        try:
+            validate_instance(args.instance)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 2
     try:
         if args.command == "doctor": return doctor.run()
         if args.command == "toolchain":

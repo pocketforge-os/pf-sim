@@ -55,7 +55,7 @@ class DesktopBackend(Backend):
             meta = {}
         components = {name: {"alive": alive(records.get(name)), "pid": records.get(name, {}).get("pid")} for name in COMPONENTS}
         socket = meta.get("weston_socket")
-        xdg = os.environ.get("XDG_RUNTIME_DIR")
+        xdg = meta.get("xdg_runtime_dir")
         result = {
             "instance": instance, "components": components,
             "weston_socket": socket,
@@ -67,7 +67,18 @@ class DesktopBackend(Backend):
             "shell_sha256": meta.get("shell_sha256"), "authorityd_sha256": meta.get("authorityd_sha256"),
         }
         count = sum(item["alive"] for item in components.values())
-        result["state"] = "up" if count == len(COMPONENTS) else ("down" if count == 0 else "degraded")
+        degraded_reasons = [f"{name}_dead" for name, item in components.items() if not item["alive"]]
+        if not result["weston_socket_present"]:
+            degraded_reasons.append("weston_socket_missing")
+        if not result["authority_socket_present"]:
+            degraded_reasons.append("authority_socket_missing")
+        if count == 0:
+            result["state"] = "down"
+        elif count == len(COMPONENTS) and not degraded_reasons:
+            result["state"] = "up"
+        else:
+            result["state"] = "degraded"
+        result["degraded_reasons"] = degraded_reasons if result["state"] == "degraded" else []
         return result
 
     def _spawn(self, name: str, command: list[str], path: Path, records: dict, env=None) -> subprocess.Popen:
@@ -120,6 +131,7 @@ class DesktopBackend(Backend):
             "runtime_rev": manifest.get("runtime_rev"), "shell_bin": str(shell), "authorityd_bin": str(authority),
             "shell_sha256": sha256(shell), "authorityd_sha256": sha256(authority),
             "started_at": datetime.now(timezone.utc).isoformat(), "weston_socket": socket_name,
+            "xdg_runtime_dir": str(xdg),
         }
         (path / "run.json").write_text(json.dumps(metadata, indent=2) + "\n")
         records: dict = {}
@@ -165,7 +177,7 @@ class DesktopBackend(Backend):
                 time.sleep(0.05)
         try:
             meta = json.loads((path / "run.json").read_text())
-            xdg = os.environ.get("XDG_RUNTIME_DIR")
+            xdg = meta.get("xdg_runtime_dir")
             if xdg: (Path(xdg) / meta.get("weston_socket", "__missing__")).unlink(missing_ok=True)
         except (FileNotFoundError, json.JSONDecodeError): pass
         (path / "session-authority.sock").unlink(missing_ok=True)
