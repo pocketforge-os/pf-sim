@@ -31,7 +31,10 @@ jobs:
       - name: Unit tests
         env:
           PF_SIM_REQUIRE_UINPUT: "1"
-        run: python3 -m unittest discover -s tests -v
+        run: |
+          unit_home="$(mktemp -d)"
+          trap 'rm -rf "$unit_home"' EXIT
+          PF_SIM_HOME="$unit_home" python3 -m unittest discover -s tests -v
       - name: Build toolchain
         run: ./pf-simctl toolchain build
       - name: Doctor

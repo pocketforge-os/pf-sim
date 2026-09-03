@@ -22,12 +22,22 @@ class DoctorTests(unittest.TestCase):
 
     def test_event_node_access_reports_unreadable_probe(self):
         device = Mock(sysname="input123")
+        codes = [304, 305]
         with patch.object(doctor.os, "access", return_value=True), \
-                patch.object(doctor, "UInputDevice", return_value=device), \
+                patch.object(doctor, "contract_codes", return_value=codes), \
+                patch.object(doctor, "UInputDevice", return_value=device) as create, \
                 patch.object(doctor, "find_event_node", return_value="/dev/input/event17"), \
                 patch.object(doctor, "wait_event_node_readable", return_value=False):
             self.assertEqual(doctor.event_node_access(), "unreadable")
+        create.assert_called_once_with(codes, "doctor-probe")
         device.close.assert_called_once_with()
+
+    def test_event_node_access_is_unknown_without_toolchain(self):
+        with patch.object(doctor.os, "access", return_value=True), \
+                patch.object(doctor, "contract_codes", side_effect=FileNotFoundError), \
+                patch.object(doctor, "UInputDevice") as create:
+            self.assertEqual(doctor.event_node_access(), "unknown (toolchain not built)")
+        create.assert_not_called()
 
     def test_event_node_access_is_unknown_without_uinput(self):
         with patch.object(doctor.os, "access", return_value=False), \

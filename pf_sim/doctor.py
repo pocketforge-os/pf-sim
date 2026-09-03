@@ -21,7 +21,11 @@ def event_node_access() -> str:
     """Probe access to the event node udev creates for this process."""
     if not os.access(UINPUT_PATH, os.W_OK):
         return "unknown"
-    device = UInputDevice(contract_codes(), "doctor-probe")
+    try:
+        codes = contract_codes()
+    except (FileNotFoundError, ValueError):
+        return "unknown (toolchain not built)"
+    device = UInputDevice(codes, "doctor-probe")
     try:
         event_node = find_event_node(device.sysname)
         return "ok" if wait_event_node_readable(event_node) else "unreadable"
