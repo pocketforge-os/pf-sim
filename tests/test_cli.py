@@ -38,3 +38,15 @@ class CliStatusTests(unittest.TestCase):
             self.assertEqual(main(["up", "--instance", "../../x"]), 2)
             seed.assert_not_called()
             self.assertFalse((Path(tmp).parent / "x").exists())
+
+    def test_invalid_profile_and_capture_names_exit_two(self):
+        cases = ((["profile", "snapshot", "../../x"], "invalid_profile"),
+                 (["profile", "apply", "a/b"], "invalid_profile"),
+                 (["profile", "show", "/tmp/x"], "invalid_profile"),
+                 (["profile", "validate", "../x"], "invalid_profile"),
+                 (["up", "--profile", "../x"], "invalid_profile"),
+                 (["capture", "../x"], "invalid_capture"))
+        for argv, reason in cases:
+            with self.subTest(argv=argv), patch("sys.stderr", new=io.StringIO()) as stderr:
+                self.assertEqual(main(argv), 2)
+                self.assertIn("reason=" + reason, stderr.getvalue())
