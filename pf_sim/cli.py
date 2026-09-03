@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
-from . import capture, doctor, keys, profiles, toolchain
+from . import capture, doctor, gamepad, inputs, keys, profiles, toolchain
 
 
 def backend(name: str):
@@ -48,6 +48,28 @@ def parser() -> argparse.ArgumentParser:
     cap.add_argument("name"); cap.add_argument("--instance", default="default"); cap.add_argument("--settle", type=float, default=.5)
     key = commands.add_parser("key", help="raw windowed keyboard fallback")
     key.add_argument("keysyms", nargs="+"); key.add_argument("--instance", default="default"); key.add_argument("--delay", type=float, default=.35)
+    pads = commands.add_parser("gamepad").add_subparsers(dest="gamepad_command", required=True)
+    for name in ("create", "destroy", "status"):
+        command = pads.add_parser(name)
+        command.add_argument("--instance", default="default")
+        if name == "status": command.add_argument("--json", action="store_true")
+    input_commands = commands.add_parser("input").add_subparsers(dest="input_command", required=True)
+    press = input_commands.add_parser("press")
+    press.add_argument("control", nargs="+")
+    press.add_argument("--instance", default="default")
+    press.add_argument("--hold-ms", type=int, default=60)
+    press.add_argument("--gap-ms", type=int, default=120)
+    hold = input_commands.add_parser("hold")
+    hold.add_argument("control"); hold.add_argument("--ms", type=int, required=True)
+    hold.add_argument("--instance", default="default")
+    action = input_commands.add_parser("action")
+    action.add_argument("action"); action.add_argument("--context", choices=["shell", "library", "global"], default="shell")
+    action.add_argument("--instance", default="default")
+    sequence = input_commands.add_parser("seq")
+    sequence.add_argument("tokens"); sequence.add_argument("--context", choices=["shell", "library", "global"], default="shell")
+    sequence.add_argument("--instance", default="default")
+    sequence.add_argument("--hold-ms", type=int, default=60); sequence.add_argument("--gap-ms", type=int, default=120)
+    listing = input_commands.add_parser("list"); listing.add_argument("--instance", default="default")
     return root
 
 
@@ -105,6 +127,36 @@ def main(argv=None) -> int:
                     print("key_status=unsupported reason=headless_input_arrives_in_p2"); return 2
                 raise
             print(f"key_status=ok count={len(args.keysyms)}"); return 0
+        if args.command == "gamepad":
+            if args.gamepad_command == "create":
+                result = gamepad.create(args.instance)
+                print(f"gamepad_status=created event_node={result['event_node']}")
+                return 0
+            if args.gamepad_command == "destroy":
+                stopped = gamepad.destroy(args.instance)
+                print(f"gamepad_status={'destroyed' if stopped else 'absent'}")
+                return 0
+            result = gamepad.status(args.instance)
+            if args.json:
+                print(json.dumps(result, indent=2, sort_keys=True))
+            else:
+                print(f"gamepad_status={result['state']} pid_alive={str(result['pid_alive']).lower()} node_present={str(result['node_present']).lower()}")
+            return 0 if result["state"] == "up" else 3
+        if args.command == "input":
+            if args.input_command == "press":
+                inputs.press(args.instance, args.control, args.hold_ms, args.gap_ms)
+            elif args.input_command == "hold":
+                inputs.hold(args.instance, args.control, args.ms)
+            elif args.input_command == "action":
+                inputs.action(args.instance, args.action, args.context)
+            elif args.input_command == "seq":
+                inputs.sequence(args.instance, args.tokens, args.context, args.hold_ms, args.gap_ms)
+            else:
+                print("POSITION\tLABEL\tCODE\tBOUND ACTIONS")
+                for row in inputs.list_rows(): print("\t".join(row))
+                return 0
+            print("input_status=ok")
+            return 0
         impl = backend(args.backend)
         if args.command == "up":
             selected = profiles.resolve_profile(args.profile)
@@ -118,7 +170,7 @@ def main(argv=None) -> int:
         result = impl.status(args.instance)
         print(json.dumps(result, indent=2, sort_keys=True) if args.json else " ".join([f"status={result['state']}", f"instance={args.instance}"] + [f"{n}={'alive' if v['alive'] else 'dead'}" for n, v in result['components'].items()]))
         return {"up": 0, "down": 3, "degraded": 4}[result["state"]]
-    except (RuntimeError, ValueError, FileNotFoundError, subprocess.CalledProcessError) as error:
+    except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as error:
         reason = str(error)
         hint = ""
         if "_died" in reason and args.command == "up":

@@ -60,10 +60,14 @@ def build(force: bool = False) -> dict:
     bin_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(target / "release" / "pf-shell", bin_dir / "pf-shell")
     shutil.copy2(runtime_root / "bin" / "pf-session-authorityd", bin_dir / "pf-session-authorityd")
+    contract_source = source / "crates" / "pf-shell" / "fixtures" / "device.json"
+    contract_target = root / "device-contract.json"
+    shutil.copy2(contract_source, contract_target)
     manifest = {
         "launcher_rev": pins["launcher_rev"], "runtime_rev": runtime_rev,
         "pf_shell_sha256": sha256(bin_dir / "pf-shell"),
         "authorityd_sha256": sha256(bin_dir / "pf-session-authorityd"),
+        "device_contract_sha256": sha256(contract_target),
         "built_at": datetime.now(timezone.utc).isoformat(),
     }
     manifest_path().parent.mkdir(parents=True, exist_ok=True)
