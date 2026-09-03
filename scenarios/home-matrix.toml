@@ -1,0 +1,60 @@
+[scenario]
+name = "home-matrix"
+description = "Capture Home at every supported scale and contrast preset."
+profile = "seeded-default"
+scale = "100"
+contrast = "default"
+
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "100"
+contrast = "default"
+[[steps]]
+op = "capture"
+name = "home-100-default"
+
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "100"
+contrast = "hc"
+[[steps]]
+op = "capture"
+name = "home-100-hc"
+
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "150"
+contrast = "default"
+[[steps]]
+op = "capture"
+name = "home-150-default"
+
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "150"
+contrast = "hc"
+[[steps]]
+op = "capture"
+name = "home-150-hc"
+
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "200"
+contrast = "default"
+[[steps]]
+op = "capture"
+name = "home-200-default"
+
+[[steps]]
+op = "profile"
+name = "seeded-default"
+scale = "200"
+contrast = "hc"
+[[steps]]
+op = "capture"
+name = "home-200-hc"

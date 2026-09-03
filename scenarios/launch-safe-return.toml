@@ -1,0 +1,30 @@
+[scenario]
+name = "launch-safe-return"
+description = "Launch Ridgeline, observe its delayed transition, and return safely."
+profile = "seeded-default"
+scale = "100"
+contrast = "default"
+
+[[steps]]
+op = "input"
+seq = "Activate"
+[[steps]]
+op = "wait_for"
+predicate = "session_state == launching"
+[[steps]]
+op = "capture"
+name = "launch-dim"
+[[steps]]
+op = "wait_for"
+predicate = "app_state == running"
+[[steps]]
+op = "capture"
+name = "in-app"
+[[steps]]
+op = "safe_return"
+[[steps]]
+op = "wait_for"
+predicate = "last_receipt == Returned"
+[[steps]]
+op = "capture"
+name = "returned"

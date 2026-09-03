@@ -70,3 +70,26 @@ presentation acknowledged in launcher order. Confirm the durable result with
 `history --json`; crash sessions have a `Crash` receipt and safe returns have a
 `Returned` receipt. These controls make launch, dim, in-app, return, and crash frames
 repeatable in both headless and windowed loops.
+
+## Scenario files and determinism
+
+A scenario is TOML with a `[scenario]` header and ordered `[[steps]]`. Input steps use
+the `input seq` grammar; `wait_for` and `assert` accept `focused_label`, `focused_id`,
+`label_present`, `label_absent`, `route`, `search_query`, `result_count`,
+`session_state`, `last_receipt`, and `app_state` predicates. `wait_for` polls the
+automation idle seam and current scene/session history until its bounded timeout.
+Each `profile` step reseeds state and restarts the shell, so put it before navigation
+and repeat the navigation after every profile change.
+
+The shipped preset matrix captures Home rather than Settings. The current gamepad
+contract does not bind the launcher's `Room.next`/`Room.previous` actions, and its
+room-tab nodes are not reachable with the bound directional actions. Extending that
+launcher input contract is deferred; the scenario runner does not invent an
+automation-only route around the user input contract.
+
+`scenario run FILE --repeat N` starts a replaced headless instance for each run,
+unless `--keep-instance` is requested. Every completed step produces a frame and
+semantic scene in `scenarios/NAME/run-NNN/NN-op/`; `step.json` records timing, output,
+and errors. A failure marks later steps skipped. The root reports include a step table,
+capture hashes, and every discouraged `sleep` step. Repeats are deterministic only
+when the corresponding capture SHA-256 is identical in every run.

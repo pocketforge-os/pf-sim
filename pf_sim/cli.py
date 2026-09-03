@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
-from . import capture, doctor, gamepad, inputs, keys, profiles, toolchain
+from . import capture, doctor, gamepad, inputs, keys, profiles, scenario, toolchain
 from .automation import AutomationClient
 from .authority import AuthorityClient
 from .fixture_app import fixture_config, send_command
@@ -93,6 +93,12 @@ def parser() -> argparse.ArgumentParser:
     app_hook = commands.add_parser("app-hook")
     app_hook.add_argument("hook_command", choices=("launch", "stop", "kill", "activate")); app_hook.add_argument("values", nargs="*")
     app_hook.add_argument("--run-dir", required=True, type=Path)
+    scenarios = commands.add_parser("scenario").add_subparsers(dest="scenario_command", required=True)
+    scenarios.add_parser("list").add_argument("--dir", type=Path, default=Path("scenarios"))
+    scenario_validate = scenarios.add_parser("validate"); scenario_validate.add_argument("file", type=Path)
+    scenario_run = scenarios.add_parser("run"); scenario_run.add_argument("file", type=Path)
+    scenario_run.add_argument("--repeat", type=int, default=1); scenario_run.add_argument("--out", type=Path)
+    scenario_run.add_argument("--instance", default="default"); scenario_run.add_argument("--keep-instance", action="store_true")
     return root
 
 
@@ -119,6 +125,18 @@ def main(argv=None) -> int:
         print(str(error), file=sys.stderr)
         return 2
     try:
+        if args.command == "scenario":
+            if args.scenario_command == "list":
+                try: items = scenario.list_scenarios(args.dir)
+                except ValueError as error: print(str(error), file=sys.stderr); return 2
+                for item in items: print(f"scenario={item.name} description={item.description}")
+                return 0
+            try: item = scenario.load(args.file)
+            except ValueError as error: print(str(error), file=sys.stderr); return 2
+            if args.scenario_command == "validate": print(f"validate_status=ok scenario={item.name}"); return 0
+            code, report, _ = scenario.run(item, args.repeat, args.out, args.instance, args.keep_instance)
+            print(f"scenario_status={report['status']} deterministic={str(report['deterministic']).lower()} runs={args.repeat}")
+            return code
         if args.command == "doctor": return doctor.run()
         if args.command == "app-hook":
             request = {"command": args.hook_command}

@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from pf_sim.scene import find, focused_id, iter_nodes, node_bounds
+from pf_sim.scene import find, focused_id, iter_nodes, node_bounds, route
 
 
 class SceneTests(unittest.TestCase):
@@ -14,3 +14,7 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(find(self.scene, role="text", label="Library")["id"], "title")
         self.assertEqual(node_bounds(next(iter(iter_nodes(self.scene)))), (0, 0, 1280, 720))
         self.assertEqual(len(list(iter_nodes(self.scene))), 3)
+
+    def test_route_uses_active_room_underline(self):
+        scene = {"scene": {"children": [{"id": "room-home"}, {"id": "room-settings-underline"}]}}
+        self.assertEqual(route(scene), "Settings")
