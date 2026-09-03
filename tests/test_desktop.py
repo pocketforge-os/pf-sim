@@ -61,6 +61,16 @@ class DesktopTests(unittest.TestCase):
         self.up()
         with self.assertRaisesRegex(RuntimeError, "instance_already_up"): self.up()
 
+    def test_up_succeeds_with_gamepad_control_files_present(self):
+        run = self.home / "runs/default"
+        run.mkdir(parents=True)
+        for name in ("gamepad.lock", "gamepad.json", "gamepad.sock"):
+            (run / name).touch()
+        self.up()
+        self.assertEqual(self.backend.status("default")["state"], "up")
+        for name in ("gamepad.lock", "gamepad.json", "gamepad.sock"):
+            self.assertTrue((run / name).exists())
+
     def test_status_state_matrix(self):
         self.assertEqual(self.backend.status("default")["state"], "down")
         process = subprocess.Popen(["sleep", "30"])

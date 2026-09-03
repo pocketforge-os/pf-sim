@@ -55,6 +55,33 @@ snapshot NAME` saves sanitized state under `$PF_SIM_HOME/profiles/NAME`; `profil
 NAME_OR_PATH` rejects live markers, sockets, and locks. `capture` is raw and not frame-synchronized.
 The raw `key KEYSYM...` fallback works only for windowed Weston; controller input arrives in P2.
 
+## Input
+
+pf-sim presents a Linux virtual gamepad so the shell receives the same evdev button codes and
+uses the same `pf-input-map` bindings as the physical device. This avoids desktop key-symbol
+stand-ins whose labels and behavior differ from the handheld controls. The device contract is
+not copied into this repository: `toolchain build` copies `device.json` from the revision-pinned
+launcher checkout into `$PF_SIM_HOME/toolchain/device-contract.json` and records its SHA-256 in
+the toolchain manifest.
+
+Create the gamepad, inspect its controls, send controller-shaped input, and remove it with:
+
+```sh
+./pf-simctl gamepad create [--instance default]
+./pf-simctl gamepad status [--instance default] [--json]
+./pf-simctl input list
+./pf-simctl input press east A BTN_EAST --hold-ms 60 --gap-ms 120
+./pf-simctl input hold south --ms 500
+./pf-simctl input action Move.down --context shell
+./pf-simctl input seq "east Move.down south"
+./pf-simctl gamepad destroy [--instance default]
+```
+
+The holder owns `/dev/uinput` and serves commands through the instance's `gamepad.sock`; the
+device disappears when the holder exits. On CI or a host without a user ACL, enable access before
+running tests with `sudo modprobe uinput && sudo chmod 666 /dev/uinput`. CI sets
+`PF_SIM_REQUIRE_UINPUT=1`, making unavailable uinput support a failure rather than a skip.
+
 ## Layout
 
 - `pf_sim/` contains the CLI, lifecycle supervisor, backend abstraction, and toolchain builder.
