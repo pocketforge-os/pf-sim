@@ -61,10 +61,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      PF_SIM_HOME: ${{ runner.temp }}/pf-sim-home
-      XDG_RUNTIME_DIR: ${{ runner.temp }}/xdg
       PF_SIM_REQUIRE_UINPUT: "1"
     steps:
+      - name: Configure temporary paths
+        run: |
+          echo "PF_SIM_HOME=$RUNNER_TEMP/pf-sim-home" >> "$GITHUB_ENV"
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP/xdg" >> "$GITHUB_ENV"
       - name: Check out pf-sim
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
