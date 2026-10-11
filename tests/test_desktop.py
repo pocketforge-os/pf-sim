@@ -11,7 +11,6 @@ from unittest.mock import Mock
 
 from pf_sim import system_menu
 from pf_sim.backend.desktop import COMPONENTS, DesktopBackend, orphan_shell_pids, proc_start
-from pf_sim.contract import Control, DeviceContract
 from pf_sim.profiles import resolve_profile
 from pf_sim.toolchain import sha256
 
@@ -59,16 +58,23 @@ class DesktopTests(unittest.TestCase):
         custom_shell = self.root / "custom-pf-shell"
         custom_shell.write_text(FAKE.read_text() + "\n# custom shell bytes\n")
         custom_shell.chmod(0o755)
+        contract = {
+            "physical_controls": [
+                {"position": "guide", "printed_label": "", "input_code": "BTN_MODE"},
+            ],
+            "effective_map": [
+                {"context": "global", "action": "SystemMenu",
+                 "binding": {"shape": "single_press", "controls": ["guide"]}},
+            ],
+        }
+        contract_path = self.home / "toolchain/device-contract.json"
+        contract_path.write_text(json.dumps(contract, sort_keys=True) + "\n")
         manifest = {
             "launcher_rev": revision,
             "pf_shell_sha256": sha256(pinned_shell),
+            "device_contract_sha256": sha256(contract_path),
         }
         (self.home / "toolchain/manifest.json").write_text(json.dumps(manifest))
-        contract = DeviceContract(
-            [Control("guide", "", "BTN_MODE", 316)],
-            [{"context": "global", "action": "SystemMenu",
-              "binding": {"shape": "single_press", "controls": ["guide"]}}],
-        )
 
         cases = (
             ("manifest", None, None, True),
@@ -94,7 +100,7 @@ class DesktopTests(unittest.TestCase):
                     )
                     if accepted:
                         self.assertEqual(
-                            system_menu.send("default", contract)["launcher_rev"],
+                            system_menu.send("default")["launcher_rev"],
                             revision,
                         )
                         sequence.assert_called_once()
@@ -104,7 +110,7 @@ class DesktopTests(unittest.TestCase):
                                             manifest["pf_shell_sha256"])
                         with self.assertRaisesRegex(
                                 RuntimeError, "system_menu_provenance_mismatch"):
-                            system_menu.send("default", contract)
+                            system_menu.send("default")
                         sequence.assert_not_called()
                         automation.assert_not_called()
                 finally:

@@ -22,12 +22,8 @@ class DeviceContract:
         self.mappings = mappings
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "DeviceContract":
-        path = path or sim_home() / "toolchain" / "device-contract.json"
-        try:
-            data = json.loads(path.read_text())
-        except FileNotFoundError as error:
-            raise RuntimeError("reason=device_contract_absent hint=run_toolchain_build") from error
+    def from_bytes(cls, content: bytes) -> "DeviceContract":
+        data = json.loads(content)
         controls = []
         for item in data["physical_controls"]:
             name = item["input_code"]
@@ -35,6 +31,14 @@ class DeviceContract:
                 raise RuntimeError(f"reason=unknown_input_code code={name}")
             controls.append(Control(item["position"], item["printed_label"], name, CODES[name]))
         return cls(controls, data["effective_map"])
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> "DeviceContract":
+        path = path or sim_home() / "toolchain" / "device-contract.json"
+        try:
+            return cls.from_bytes(path.read_bytes())
+        except FileNotFoundError as error:
+            raise RuntimeError("reason=device_contract_absent hint=run_toolchain_build") from error
 
     def resolve_control(self, value: str) -> Control:
         folded = value.casefold()
