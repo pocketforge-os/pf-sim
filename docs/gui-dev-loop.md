@@ -81,8 +81,10 @@ Measurement emits an overlay plus `ink.json`, `gaps.json`, `contrast.json`, `rep
 
 `launching` lasts until the fixture socket appears. `app quit` is a clean return,
 `system-menu` first verifies that the selected launcher's effective map binds `SystemMenu`
-to the protected physical `BTN_MODE` input, then sends that control; `app crash` yields a
-`Crash` receipt. The command reports the selected launcher revision and configured 250 ms
+to the protected physical `BTN_MODE` input, then sends that control. It also requires the
+running shell hash to match that launcher's toolchain manifest; instances started with
+`--shell-bin` or `PF_SIM_SHELL_BIN` fail closed unless those bytes match. `app crash` yields
+a `Crash` receipt. The command reports the selected launcher revision and configured 250 ms
 acknowledgement bound, but does not claim that fallback occurred. The committed
 `launch-system-menu-fallback` scenario starts no menu provider and proves the bounded
 providerless fallback only when its later `Returned` receipt arrives. The simulator cites

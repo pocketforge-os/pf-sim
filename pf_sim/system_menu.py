@@ -8,6 +8,7 @@ from .authority import (SYSTEM_MENU_ACK_TIMEOUT_MS, SYSTEM_MENU_CONTRACT,
                         SYSTEM_MENU_CONTROL)
 from .config import run_dir
 from .contract import DeviceContract
+from .toolchain import read_manifest
 
 
 def send(instance: str, contract: DeviceContract | None = None) -> dict:
@@ -18,8 +19,19 @@ def send(instance: str, contract: DeviceContract | None = None) -> dict:
     except (OSError, json.JSONDecodeError) as error:
         raise RuntimeError("reason=system_menu_provenance_absent") from error
     launcher_rev = metadata.get("launcher_rev")
-    if not isinstance(launcher_rev, str) or not launcher_rev:
+    shell_sha256 = metadata.get("shell_sha256")
+    manifest = read_manifest()
+    if (not isinstance(launcher_rev, str) or not launcher_rev
+            or not isinstance(shell_sha256, str) or not shell_sha256
+            or not isinstance(manifest, dict)
+            or not isinstance(manifest.get("launcher_rev"), str)
+            or not isinstance(manifest.get("pf_shell_sha256"), str)):
         raise RuntimeError("reason=system_menu_provenance_absent")
+    if (launcher_rev != manifest["launcher_rev"]
+            or shell_sha256 != manifest["pf_shell_sha256"]):
+        raise RuntimeError(
+            f"reason=system_menu_provenance_mismatch launcher_rev={launcher_rev}"
+        )
 
     contract = contract or DeviceContract.load()
     physical = contract.resolve_control(SYSTEM_MENU_CONTROL)

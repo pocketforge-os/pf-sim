@@ -11,6 +11,7 @@ from pf_sim.contract import Control, DeviceContract
 
 class SystemMenuTests(unittest.TestCase):
     REVISION = "95302865bc584ce5e1c96e09df387aa5f58455f6"
+    SHELL_SHA256 = "a" * 64
 
     def contract(self, action="SystemMenu"):
         return DeviceContract(
@@ -24,7 +25,14 @@ class SystemMenuTests(unittest.TestCase):
         path = Path(root) / "runs/default"
         path.mkdir(parents=True)
         path.joinpath("run.json").write_text(
-            json.dumps({"launcher_rev": self.REVISION}) + "\n")
+            json.dumps({"launcher_rev": self.REVISION,
+                        "shell_sha256": self.SHELL_SHA256}) + "\n")
+        toolchain = Path(root) / "toolchain"
+        toolchain.mkdir()
+        toolchain.joinpath("manifest.json").write_text(json.dumps({
+            "launcher_rev": self.REVISION,
+            "pf_shell_sha256": self.SHELL_SHA256,
+        }) + "\n")
         return path
 
     def test_send_verifies_selected_contract_and_reports_provenance(self):

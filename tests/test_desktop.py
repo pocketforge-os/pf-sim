@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -8,8 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 from unittest.mock import Mock
 
+from pf_sim import system_menu
 from pf_sim.backend.desktop import COMPONENTS, DesktopBackend, orphan_shell_pids, proc_start
+from pf_sim.contract import Control, DeviceContract
 from pf_sim.profiles import resolve_profile
+from pf_sim.toolchain import sha256
 
 
 FAKE = Path(__file__).parent / "fakebins" / "fake-component"
@@ -45,6 +49,66 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.backend.status("default")["state"], "up")
         self.assertTrue(self.backend.down("default"))
         self.assertEqual(self.backend.status("default")["state"], "down")
+
+    def test_system_menu_provenance_tracks_both_custom_shell_selectors(self):
+        revision = "95302865bc584ce5e1c96e09df387aa5f58455f6"
+        toolchain_bin = self.home / "toolchain/bin"
+        toolchain_bin.mkdir(parents=True)
+        pinned_shell = toolchain_bin / "pf-shell"
+        shutil.copy2(FAKE, pinned_shell)
+        custom_shell = self.root / "custom-pf-shell"
+        custom_shell.write_text(FAKE.read_text() + "\n# custom shell bytes\n")
+        custom_shell.chmod(0o755)
+        manifest = {
+            "launcher_rev": revision,
+            "pf_shell_sha256": sha256(pinned_shell),
+        }
+        (self.home / "toolchain/manifest.json").write_text(json.dumps(manifest))
+        contract = DeviceContract(
+            [Control("guide", "", "BTN_MODE", 316)],
+            [{"context": "global", "action": "SystemMenu",
+              "binding": {"shape": "single_press", "controls": ["guide"]}}],
+        )
+
+        cases = (
+            ("manifest", None, None, True),
+            ("--shell-bin", custom_shell, pinned_shell, False),
+            ("PF_SIM_SHELL_BIN", None, custom_shell, False),
+        )
+        for label, argument, environment, accepted in cases:
+            with self.subTest(selector=label), patch.dict(os.environ, {}, clear=False), \
+                    patch("pf_sim.system_menu.inputs.sequence") as sequence, \
+                    patch("pf_sim.system_menu.AutomationClient") as automation:
+                if environment is None:
+                    os.environ.pop("PF_SIM_SHELL_BIN", None)
+                else:
+                    os.environ["PF_SIM_SHELL_BIN"] = str(environment)
+                self.backend.up(
+                    shell_bin=argument,
+                    authorityd_bin=self.bin / "pf-session-authorityd",
+                    no_gamepad=True,
+                )
+                try:
+                    metadata = json.loads(
+                        (self.home / "runs/default/run.json").read_text()
+                    )
+                    if accepted:
+                        self.assertEqual(
+                            system_menu.send("default", contract)["launcher_rev"],
+                            revision,
+                        )
+                        sequence.assert_called_once()
+                        automation.return_value.wait_idle.assert_called_once_with()
+                    else:
+                        self.assertNotEqual(metadata["shell_sha256"],
+                                            manifest["pf_shell_sha256"])
+                        with self.assertRaisesRegex(
+                                RuntimeError, "system_menu_provenance_mismatch"):
+                            system_menu.send("default", contract)
+                        sequence.assert_not_called()
+                        automation.assert_not_called()
+                finally:
+                    self.backend.down("default")
 
     def test_down_uses_recorded_runtime_directory(self):
         self.up()
