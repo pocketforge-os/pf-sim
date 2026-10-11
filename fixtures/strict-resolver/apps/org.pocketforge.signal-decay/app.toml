@@ -1,6 +1,6 @@
 [app]
-id = "hollow-tides"
-name = "Hollow Tides simulator fixture"
+id = "org.pocketforge.signal-decay"
+name = "Signal Decay simulator fixture"
 use = []
 
 [runtime]

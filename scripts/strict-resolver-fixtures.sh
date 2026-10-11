@@ -20,7 +20,7 @@ platform_root="${root%/}/usr/share/pocketforge"
 platform_contract="$platform_root/platform-capabilities.toml"
 apps_marker="$apps_root/.pf-sim-fixtures"
 platform_marker="$platform_root/.pf-sim-fixtures"
-app_ids="ridgeline hollow-tides signal-decay"
+app_ids="org.pocketforge.ridgeline org.pocketforge.hollow-tides org.pocketforge.signal-decay"
 
 install_fixtures() {
     [ ! -e "$apps_root" ] || {

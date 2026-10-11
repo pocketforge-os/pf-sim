@@ -11,10 +11,19 @@ class StrictResolverFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             subprocess.run([script, "install", root], check=True)
-            for app_id in ("ridgeline", "hollow-tides", "signal-decay"):
+            for app_id in (
+                "org.pocketforge.ridgeline",
+                "org.pocketforge.hollow-tides",
+                "org.pocketforge.signal-decay",
+            ):
                 app = root / "opt/pocketforge/apps" / app_id
+                self.assertTrue(app.joinpath("app.toml").is_file(), app_id)
                 self.assertIn(f'id = "{app_id}"', app.joinpath("app.toml").read_text())
                 self.assertTrue(os.access(app / "fixture", os.X_OK))
+            for legacy_id in ("ridgeline", "hollow-tides", "signal-decay"):
+                self.assertFalse(
+                    root.joinpath("opt/pocketforge/apps", legacy_id).exists(), legacy_id
+                )
             self.assertTrue(
                 root.joinpath("usr/share/pocketforge/platform-capabilities.toml").is_file()
             )

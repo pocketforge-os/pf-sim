@@ -1,6 +1,6 @@
 [app]
-id = "ridgeline"
-name = "Ridgeline simulator fixture"
+id = "org.pocketforge.hollow-tides"
+name = "Hollow Tides simulator fixture"
 use = []
 
 [runtime]

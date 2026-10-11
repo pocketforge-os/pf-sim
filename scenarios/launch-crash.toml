@@ -7,7 +7,7 @@ contrast = "default"
 
 [[steps]]
 op = "launch"
-item = "ridgeline"
+item = "org.pocketforge.ridgeline"
 [[steps]]
 op = "wait_for"
 predicate = "app_state == running"

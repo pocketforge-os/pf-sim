@@ -94,8 +94,14 @@ class WorkflowTests(unittest.TestCase):
 
         fixtures = Path(__file__).resolve().parents[1] / "fixtures/strict-resolver"
         self.assertTrue((fixtures / "platform-capabilities.toml").is_file())
-        for app_id in ("ridgeline", "hollow-tides", "signal-decay"):
-            descriptor = (fixtures / "apps" / app_id / "app.toml").read_text()
+        for app_id in (
+            "org.pocketforge.ridgeline",
+            "org.pocketforge.hollow-tides",
+            "org.pocketforge.signal-decay",
+        ):
+            descriptor_path = fixtures / "apps" / app_id / "app.toml"
+            self.assertTrue(descriptor_path.is_file(), app_id)
+            descriptor = descriptor_path.read_text()
             self.assertIn(f'id = "{app_id}"', descriptor)
             self.assertTrue((fixtures / "apps" / app_id / "fixture").is_file())
 

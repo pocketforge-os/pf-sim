@@ -94,6 +94,12 @@ class ScenarioTests(unittest.TestCase):
                                         "launch_rejected result=item_unavailable"):
                 backend.execute({"op": "launch", "item": "ridgeline"})
 
+    def test_launch_crash_uses_runtime_qualified_app_id(self):
+        path = Path(__file__).parents[1] / "scenarios" / "launch-crash.toml"
+        item = scenario.load(path)
+        launch = next(step for step in item.steps if step["op"] == "launch")
+        self.assertEqual(launch["item"], "org.pocketforge.ridgeline")
+
     def test_value_types_are_reported_as_validation_errors(self):
         cases = (
             (VALID.replace('name="tiny"', 'name=1'), "field=scenario.name expected=string"),
