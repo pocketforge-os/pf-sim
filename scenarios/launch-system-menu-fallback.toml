@@ -10,12 +10,6 @@ op = "launch"
 item = "org.pocketforge.ridgeline"
 [[steps]]
 op = "wait_for"
-predicate = "session_state == launching"
-[[steps]]
-op = "capture"
-name = "launch-dim"
-[[steps]]
-op = "wait_for"
 predicate = "app_state == running"
 [[steps]]
 op = "capture"

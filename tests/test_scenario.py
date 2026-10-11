@@ -80,6 +80,9 @@ class ScenarioTests(unittest.TestCase):
             item.steps[0],
             {"op": "launch", "item": "org.pocketforge.ridgeline"},
         )
+        waits = [step["predicate"] for step in item.steps if step["op"] == "wait_for"]
+        self.assertNotIn("session_state == launching", waits)
+        self.assertEqual(waits[0], "app_state == running")
         self.assertIn("system_menu", [step["op"] for step in item.steps])
         self.assertNotIn("safe_return", [step["op"] for step in item.steps])
 
