@@ -156,7 +156,13 @@ class LiveBackend:
         if op == "input":
             inputs.sequence(self.instance, step["seq"], "shell", 60, 120); return self.automation.wait_idle()
         if op == "text": return self.automation.text(step["value"])
-        if op == "launch": return self.authority.launch(step["item"])
+        if op == "launch":
+            result = self.authority.launch(step["item"])
+            if result.get("result") != "accepted":
+                raise RuntimeError(
+                    f"reason=launch_rejected result={result.get('result', 'invalid_response')}"
+                )
+            return result
         if op == "system_menu":
             return system_menu.send(self.instance)
         if op == "app":

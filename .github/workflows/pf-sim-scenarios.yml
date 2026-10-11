@@ -74,6 +74,8 @@ jobs:
           ref: ${{ inputs.pf_sim_ref || github.sha }}
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y weston libxkbcommon-dev pkg-config python3-pil python3-yaml
+      - name: Stage strict resolver fixtures
+        run: sudo ./scripts/strict-resolver-fixtures.sh install /
       - name: Workflow lint and action pin guard
         run: |
           python3 - <<'PY'
@@ -149,6 +151,12 @@ jobs:
       - name: Reap simulator processes
         if: always()
         run: ./pf-simctl down --reap-orphans
+      - name: Remove strict resolver fixtures
+        if: always()
+        run: |
+          if sudo test -f /opt/pocketforge/apps/.pf-sim-fixtures; then
+            sudo ./scripts/strict-resolver-fixtures.sh remove /
+          fi
       - name: Upload scenario and measurement evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -6,6 +6,16 @@ This is the fresh-session path. Run commands through the checkout’s `pf-simctl
 
 Set a writable runtime directory, build the pinned launcher/runtime once, then make every required doctor row green. `DISPLAY` and event-node access are advisory unless you need windowed or controller input; CI sets `PF_SIM_REQUIRE_UINPUT=1` so missing uinput is fatal.
 
+The merged runtime resolves launches against the production fixed roots. On a disposable
+desktop or CI host, stage the checked-in synthetic descriptors before scenario work and remove
+them afterward. Both operations refuse to overwrite unmarked data:
+
+```sh
+sudo ./scripts/strict-resolver-fixtures.sh install /
+# run scenarios
+sudo ./scripts/strict-resolver-fixtures.sh remove /
+```
+
 ```sh
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 ./pf-simctl toolchain build

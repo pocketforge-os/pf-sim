@@ -79,6 +79,21 @@ class ScenarioTests(unittest.TestCase):
         self.assertIn("system_menu", [step["op"] for step in item.steps])
         self.assertNotIn("safe_return", [step["op"] for step in item.steps])
 
+    def test_live_launch_accepts_only_an_authority_accepted_result(self):
+        backend = scenario.LiveBackend("default")
+        with patch("pf_sim.scenario.AuthorityClient") as authority:
+            authority.return_value.launch.return_value = {
+                "result": "accepted", "session_id": "session-1"
+            }
+            self.assertEqual(
+                backend.execute({"op": "launch", "item": "ridgeline"})["result"],
+                "accepted",
+            )
+            authority.return_value.launch.return_value = {"result": "item_unavailable"}
+            with self.assertRaisesRegex(RuntimeError,
+                                        "launch_rejected result=item_unavailable"):
+                backend.execute({"op": "launch", "item": "ridgeline"})
+
     def test_value_types_are_reported_as_validation_errors(self):
         cases = (
             (VALID.replace('name="tiny"', 'name=1'), "field=scenario.name expected=string"),
