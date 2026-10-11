@@ -76,6 +76,10 @@ class ScenarioTests(unittest.TestCase):
         path = Path(__file__).parents[1] / "scenarios" / "launch-system-menu-fallback.toml"
         item = scenario.load(path)
         self.assertIn("tsp-ihne1.36", item.description)
+        self.assertEqual(
+            item.steps[0],
+            {"op": "launch", "item": "org.pocketforge.ridgeline"},
+        )
         self.assertIn("system_menu", [step["op"] for step in item.steps])
         self.assertNotIn("safe_return", [step["op"] for step in item.steps])
 

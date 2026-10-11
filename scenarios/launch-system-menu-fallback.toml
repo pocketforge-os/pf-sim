@@ -6,8 +6,8 @@ scale = "100"
 contrast = "default"
 
 [[steps]]
-op = "input"
-seq = "Activate"
+op = "launch"
+item = "org.pocketforge.ridgeline"
 [[steps]]
 op = "wait_for"
 predicate = "session_state == launching"
