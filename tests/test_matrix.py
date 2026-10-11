@@ -185,6 +185,8 @@ class MatrixTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertEqual(report["cells"][0]["observed_screen"], "home")
+        self.assertIn({"op": "input", "seq": "BTN_MODE"}, fake.steps)
+        self.assertNotIn({"op": "input", "seq": "SafeReturn"}, fake.steps)
         self.assertIn({"op": "text", "value": ""}, fake.steps)
 
     def test_cli_rejects_unsafe_matrix_names_before_backend(self):

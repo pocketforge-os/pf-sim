@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
-from . import inputs, predicates, profiles
+from . import inputs, predicates, profiles, system_menu
 from .automation import AutomationClient
 from .authority import AuthorityClient
 from .backend import DesktopBackend
@@ -19,10 +19,10 @@ from .fixture_app import send_command
 from .scene import route
 
 
-OPS = {"profile", "input", "text", "launch", "safe_return", "app", "wait_for", "capture", "assert", "sleep"}
+OPS = {"profile", "input", "text", "launch", "system_menu", "app", "wait_for", "capture", "assert", "sleep"}
 FIELDS = {
     "profile": {"name", "scale", "contrast"}, "input": {"seq"}, "text": {"value"},
-    "launch": {"item"}, "safe_return": set(), "app": {"verb", "code"},
+    "launch": {"item"}, "system_menu": set(), "app": {"verb", "code"},
     "wait_for": {"predicate", "timeout_ms"}, "capture": {"name"},
     "assert": {"predicate"}, "sleep": {"ms"},
 }
@@ -156,8 +156,15 @@ class LiveBackend:
         if op == "input":
             inputs.sequence(self.instance, step["seq"], "shell", 60, 120); return self.automation.wait_idle()
         if op == "text": return self.automation.text(step["value"])
-        if op == "launch": return self.authority.launch(step["item"])
-        if op == "safe_return": return self.authority.safe_return()
+        if op == "launch":
+            result = self.authority.launch(step["item"])
+            if result.get("result") != "accepted":
+                raise RuntimeError(
+                    f"reason=launch_rejected result={result.get('result', 'invalid_response')}"
+                )
+            return result
+        if op == "system_menu":
+            return system_menu.send(self.instance)
         if op == "app":
             scene, history, ping = self.observe()
             active = next((entry for entry in reversed(history) if not entry.get("receipt")), None)

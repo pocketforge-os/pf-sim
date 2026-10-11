@@ -76,6 +76,35 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertIn("if-no-files-found: warn", workflow)
 
+    def test_ci_stages_and_cleans_strict_resolver_fixtures(self):
+        workflow = self.workflows / "pf-sim-scenarios.yml"
+        lines = workflow.read_text().splitlines()
+        stage = self.named_step(workflow.name, "Stage strict resolver fixtures")
+        cleanup = self.named_step(workflow.name, "Remove strict resolver fixtures")
+        stage_index = next(index for index, line in enumerate(lines)
+                           if line.strip() == "- name: Stage strict resolver fixtures")
+        scenario_index = next(index for index, line in enumerate(lines)
+                              if line.strip() == "- name: Run scenarios")
+
+        self.assertLess(stage_index, scenario_index)
+        self.assertIn("scripts/strict-resolver-fixtures.sh install /", stage)
+        self.assertIn("/opt/pocketforge/apps", cleanup)
+        self.assertIn("scripts/strict-resolver-fixtures.sh remove /", cleanup)
+        self.assertIn("if: always()", cleanup)
+
+        fixtures = Path(__file__).resolve().parents[1] / "fixtures/strict-resolver"
+        self.assertTrue((fixtures / "platform-capabilities.toml").is_file())
+        for app_id in (
+            "org.pocketforge.ridgeline",
+            "org.pocketforge.hollow-tides",
+            "org.pocketforge.signal-decay",
+        ):
+            descriptor_path = fixtures / "apps" / app_id / "app.toml"
+            self.assertTrue(descriptor_path.is_file(), app_id)
+            descriptor = descriptor_path.read_text()
+            self.assertIn(f'id = "{app_id}"', descriptor)
+            self.assertTrue((fixtures / "apps" / app_id / "fixture").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

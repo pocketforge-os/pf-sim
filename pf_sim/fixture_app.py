@@ -12,14 +12,21 @@ from pathlib import Path
 
 from .config import repo_root, validate_name
 
+FIXTURE_ALIASES = {
+    "org.pocketforge.ridgeline": "ridgeline",
+    "org.pocketforge.hollow-tides": "hollow-tides",
+    "org.pocketforge.signal-decay": "signal-decay",
+}
+
 
 def fixture_config(item: str) -> dict:
     validate_name("item", item)
-    path = (repo_root() / "fixtures/apps" / (item + ".toml")).resolve()
+    fixture_id = FIXTURE_ALIASES.get(item, item)
+    path = (repo_root() / "fixtures/apps" / (fixture_id + ".toml")).resolve()
     data = tomllib.loads(path.read_text()) if path.is_file() else {}
     pattern = data.get("pattern")
     if pattern is None:
-        own = (repo_root() / "fixtures/patterns" / (item + ".png")).resolve()
+        own = (repo_root() / "fixtures/patterns" / (fixture_id + ".png")).resolve()
         pattern = own if own.is_file() else repo_root() / "fixtures/patterns/default.png"
     else:
         pattern = (repo_root() / str(pattern)).resolve()

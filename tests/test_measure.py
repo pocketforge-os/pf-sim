@@ -57,6 +57,28 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(value["background_color"], [220, 220, 220])
         self.assertEqual(value["ink_color"], [100, 100, 100])
 
+    def test_contrast_groups_antialiased_ink_over_gradient(self):
+        bounds = {"x": 4, "y": 4, "width": 120, "height": 40}
+        measured = {"declared_bounds": bounds, "dominant_background": [20, 11, 9]}
+        bright = tuple((240 + index % 8, 224 + index // 8, 224 + (index * 3) % 8)
+                       for index in range(40))
+        dim = tuple((96 + index % 8, 80 + index // 8, 64 + (index * 3) % 8)
+                    for index in range(40))
+        for expected, foreground in (
+            ("PASS", bright),
+            ("FAIL", dim),
+        ):
+            with self.subTest(expected=expected):
+                image = Image.new("RGB", (128, 48), (0, 0, 0))
+                for y in range(4, 44):
+                    for x in range(4, 124):
+                        image.putpixel((x, y), (20 + (x % 24), 11, 9))
+                for index, x in enumerate(range(44, 84)):
+                    for y in range(17, 27):
+                        image.putpixel((x, y), foreground[(index + y) % len(foreground)])
+                value = contrast.measure(image, measured, 4.5)
+                self.assertEqual(value["status"], expected)
+
     def test_contrast_empty_box_is_no_ink(self):
         image = Image.new("RGB", (30, 20), (80, 80, 80))
         node = {"id": "empty", "role": "text", "bounds": [5, 5, 20, 10]}

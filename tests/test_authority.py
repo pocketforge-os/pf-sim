@@ -30,6 +30,8 @@ class AuthorityTests(unittest.TestCase):
     def test_methods_match_wire_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeAuthority(Path(tmp) / "a.sock").start(); client = AuthorityClient(fake.path)
-            try: client.safe_return(); client.history(); client.observe("session_running"); client.tick()
+            self.assertFalse(hasattr(client, "safe_return"),
+                             "pf-sim must not bypass Menu through a direct return helper")
+            try: client.history(); client.observe("session_running"); client.tick()
             finally: fake.close()
-            self.assertEqual([r["method"] for r in fake.requests], ["safe_return", "history", "observe", "tick"])
+            self.assertEqual([r["method"] for r in fake.requests], ["history", "observe", "tick"])

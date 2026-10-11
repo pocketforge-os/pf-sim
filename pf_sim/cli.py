@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
-from . import audit, capture, doctor, gamepad, inputs, keys, matrix, profiles, scenario, toolchain
+from . import audit, capture, doctor, gamepad, inputs, keys, matrix, profiles, scenario, system_menu, toolchain
 from . import measure
 from .config import repo_root, safe_child, sim_home
 from .automation import AutomationClient
@@ -95,7 +95,7 @@ def parser() -> argparse.ArgumentParser:
     for command in (press, hold, action, sequence):
         command.add_argument("--no-wait", action="store_true")
     listing = input_commands.add_parser("list"); listing.add_argument("--instance", default="default")
-    for name in ("launch", "safe-return", "history"):
+    for name in ("launch", "system-menu", "history"):
         command = commands.add_parser(name); command.add_argument("--instance", default="default")
         if name == "launch": command.add_argument("item_id")
         if name == "history": command.add_argument("--json", action="store_true")
@@ -221,14 +221,19 @@ def main(argv=None) -> int:
             items = json.loads((Path(__file__).parent.parent / "fixtures/catalog-snapshot.json").read_text())["items"]
             print("\n".join(f"item={i['id']} behaviour={fixture_config(i['id'])['behaviour']}" for i in items))
             return 0
-        if args.command in ("launch", "safe-return", "history", "app"):
+        if args.command == "system-menu":
+            evidence = system_menu.send(args.instance)
+            print("system_menu_status=sent " + " ".join(
+                f"{key}={value}" for key, value in evidence.items()
+            ))
+            return 0
+        if args.command in ("launch", "history", "app"):
             path = run_dir(args.instance); client = AuthorityClient(path / "session-authority.sock")
             if args.command == "launch":
                 result = client.launch(args.item_id); status = result.get("result")
                 print(f"launch_status={'ok' if status == 'accepted' else status}"
                       + (f" session={result['session_id']}" if "session_id" in result else ""))
                 return 0 if status == "accepted" else 1
-            if args.command == "safe-return": client.safe_return(); print("safe_return_status=ok"); return 0
             entries = client.history()
             if args.command == "history":
                 print(json.dumps(entries, indent=2, sort_keys=True) if args.json else "\n".join(_history_line(e) for e in entries)); return 0

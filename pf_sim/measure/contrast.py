@@ -20,6 +20,22 @@ def ratio(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
     return (bright + .05) / (dark + .05)
 
 
+def _grouped_candidates(counts: Counter, background: tuple[int, int, int],
+                        outside: tuple[int, int, int] | None, minimum: int) -> list[tuple[int, int, int]]:
+    groups: dict[tuple[int, int, int], list[tuple[tuple[int, int, int], int]]] = {}
+    for color, count in counts.items():
+        if different(color, background) and color != outside:
+            groups.setdefault(tuple(channel // 16 for channel in color), []).append((color, count))
+    candidates = []
+    for shades in groups.values():
+        total = sum(count for _, count in shades)
+        if total < minimum:
+            continue
+        candidates.append(tuple(round(sum(color[channel] * count for color, count in shades) / total)
+                                for channel in range(3)))
+    return candidates
+
+
 def measure(image: Image.Image, ink: dict, floor: float) -> dict | None:
     bounds = ink.get("declared_bounds")
     if not bounds:
@@ -43,9 +59,11 @@ def measure(image: Image.Image, ink: dict, floor: float) -> dict | None:
         # outside-ring exclusion prevents rounded page corners becoming ink.
         background = tuple(declared_background)
     minimum = max(2, int(len(inside) * .005))
-    candidates = [color for color, count in counts.items()
-                  if count >= minimum and different(color, background)
-                  and color != outside]
+    # Rasterized glyph edges split one semantic ink color across many nearby
+    # antialiasing shades. Group those shades before applying the noise floor so
+    # a gradient cannot mask clearly visible text merely because no exact glyph
+    # color occupies enough pixels on its own.
+    candidates = _grouped_candidates(counts, background, outside, minimum)
     if not candidates:
         return {"ink_color": None, "background_color": list(background), "ratio": None,
                 "floor": floor, "status": "NO_INK"}

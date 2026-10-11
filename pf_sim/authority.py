@@ -6,6 +6,9 @@ import struct
 from pathlib import Path
 
 MAX_BODY = 64 * 1024
+SYSTEM_MENU_CONTRACT = "tsp-ihne1.36"
+SYSTEM_MENU_CONTROL = "BTN_MODE"
+SYSTEM_MENU_ACK_TIMEOUT_MS = 250
 
 
 class AuthorityClient:
@@ -39,9 +42,6 @@ class AuthorityClient:
 
     def launch(self, item_id: str) -> dict:
         return self.call({"method": "launch", "item_id": item_id})
-
-    def safe_return(self) -> dict:
-        return self.call({"method": "safe_return"})
 
     def history(self) -> list[dict]:
         return self.call({"method": "history"}).get("entries", [])

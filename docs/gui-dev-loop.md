@@ -6,6 +6,16 @@ This is the fresh-session path. Run commands through the checkout’s `pf-simctl
 
 Set a writable runtime directory, build the pinned launcher/runtime once, then make every required doctor row green. `DISPLAY` and event-node access are advisory unless you need windowed or controller input; CI sets `PF_SIM_REQUIRE_UINPUT=1` so missing uinput is fatal.
 
+The merged runtime resolves launches against the production fixed roots. On a disposable
+desktop or CI host, stage the checked-in synthetic descriptors before scenario work and remove
+them afterward. Both operations refuse to overwrite unmarked data:
+
+```sh
+sudo ./scripts/strict-resolver-fixtures.sh install /
+# run scenarios
+sudo ./scripts/strict-resolver-fixtures.sh remove /
+```
+
 ```sh
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 ./pf-simctl toolchain build
@@ -62,18 +72,30 @@ Measurement emits an overlay plus `ink.json`, `gaps.json`, `contrast.json`, `rep
 ./pf-simctl capture launch-dim
 ./pf-simctl app status
 ./pf-simctl capture in-app
-./pf-simctl safe-return
+./pf-simctl system-menu
 ./pf-simctl history --json
 ./pf-simctl launch hollow-tides
 ./pf-simctl app crash
 ./pf-simctl history --json
 ```
 
-`launching` lasts until the fixture socket appears. `app quit` is a clean return, `safe-return` exercises authority ordering, and `app crash` yields a `Crash` receipt. Profiles use pf-sim’s supervisor; a custom profile may select the shell’s desktop-sim supervisor for parity checks.
+`launching` lasts until the fixture socket appears. `app quit` is a clean return,
+`system-menu` first verifies that the selected launcher's effective map binds `SystemMenu`
+to the protected physical `BTN_MODE` input, then sends that control. It also requires the
+running shell hash and the exact effective-map contract bytes to match that launcher's
+toolchain manifest; instances started with
+`--shell-bin` or `PF_SIM_SHELL_BIN` fail closed unless those bytes match. `app crash` yields
+a `Crash` receipt. The command reports the selected launcher revision and configured 250 ms
+acknowledgement bound, but does not claim that fallback occurred. The committed
+`launch-system-menu-fallback` scenario starts no menu provider and proves the bounded
+providerless fallback only when its later `Returned` receipt arrives. The simulator cites
+the complete future interface contract at `tsp-ihne1.36`; it does not hard-code menu rows or
+overflow policy. Profiles use pf-sim’s supervisor; a custom profile may select the shell’s
+desktop-sim supervisor for parity checks.
 
 ## Scenarios and determinism
 
-A scenario TOML has `[scenario]` metadata (`name`, `description`, `profile`, `scale`, `contrast`) and ordered `[[steps]]`. Operations are `profile`, `input`, `text`, `launch`, `safe_return`, `app`, `wait_for`, `capture`, `assert`, and diagnostic-only `sleep`. Predicates cover focus id/label, label presence, route, search query/result count, session/receipt, and app state. Prefer bounded predicates over sleeps. Put profile changes before navigation because they restart the shell.
+A scenario TOML has `[scenario]` metadata (`name`, `description`, `profile`, `scale`, `contrast`) and ordered `[[steps]]`. Operations are `profile`, `input`, `text`, `launch`, `system_menu`, `app`, `wait_for`, `capture`, `assert`, and diagnostic-only `sleep`. Predicates cover focus id/label, label presence, route, search query/result count, session/receipt, and app state. Prefer bounded predicates over sleeps. Put profile changes before navigation because they restart the shell.
 
 ```sh
 ./pf-simctl scenario validate scenarios/search-filter.toml
