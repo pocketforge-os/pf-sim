@@ -50,6 +50,31 @@ class ScenarioTests(unittest.TestCase):
                 scenario.load(self.write(tmp, VALID.replace('op="capture"\nname="final"', 'op="assert"\npredicate="bad"'), "predicate.toml"))
             self.assertEqual(main(["scenario", "validate", str(unsafe)]), 2)
 
+    def test_system_menu_is_physical_and_safe_return_op_is_rejected(self):
+        system_menu = VALID.replace('op="capture"\nname="final"', 'op="system_menu"')
+        safe_return = VALID.replace('op="capture"\nname="final"', 'op="safe_return"')
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(scenario.load(self.write(tmp, system_menu)).steps[0]["op"],
+                             "system_menu")
+            with self.assertRaisesRegex(ValueError, "unknown_scenario_op"):
+                scenario.load(self.write(tmp, safe_return, "unsafe-bypass.toml"))
+        with patch("pf_sim.scenario.inputs.sequence") as sequence, \
+                patch("pf_sim.scenario.AutomationClient") as automation, \
+                patch("pf_sim.scenario.AuthorityClient") as authority:
+            result = scenario.LiveBackend("default").execute({"op": "system_menu"})
+        sequence.assert_called_once_with("default", "BTN_MODE", "global", 60, 120)
+        automation.return_value.wait_idle.assert_called_once_with()
+        authority.assert_not_called()
+        self.assertEqual(result["contract"], "tsp-ihne1.36")
+        self.assertEqual(result["ack_timeout_ms"], 250)
+
+    def test_providerless_system_menu_scenario_cites_in_ipc(self):
+        path = Path(__file__).parents[1] / "scenarios" / "launch-system-menu-fallback.toml"
+        item = scenario.load(path)
+        self.assertIn("tsp-ihne1.36", item.description)
+        self.assertIn("system_menu", [step["op"] for step in item.steps])
+        self.assertNotIn("safe_return", [step["op"] for step in item.steps])
+
     def test_value_types_are_reported_as_validation_errors(self):
         cases = (
             (VALID.replace('name="tiny"', 'name=1'), "field=scenario.name expected=string"),

@@ -62,18 +62,24 @@ Measurement emits an overlay plus `ink.json`, `gaps.json`, `contrast.json`, `rep
 ./pf-simctl capture launch-dim
 ./pf-simctl app status
 ./pf-simctl capture in-app
-./pf-simctl safe-return
+./pf-simctl system-menu
 ./pf-simctl history --json
 ./pf-simctl launch hollow-tides
 ./pf-simctl app crash
 ./pf-simctl history --json
 ```
 
-`launching` lasts until the fixture socket appears. `app quit` is a clean return, `safe-return` exercises authority ordering, and `app crash` yields a `Crash` receipt. Profiles use pf-sim’s supervisor; a custom profile may select the shell’s desktop-sim supervisor for parity checks.
+`launching` lasts until the fixture socket appears. `app quit` is a clean return,
+`system-menu` sends the protected physical `BTN_MODE` input, and `app crash` yields a
+`Crash` receipt. pf-sim starts no menu provider, so `system-menu` exercises the bounded
+providerless fallback into the existing authority `safe_return` path. The simulator models
+the 250 ms acknowledgement bound and cites the complete future interface contract at
+`tsp-ihne1.36`; it does not hard-code menu rows or overflow policy. Profiles use pf-sim’s
+supervisor; a custom profile may select the shell’s desktop-sim supervisor for parity checks.
 
 ## Scenarios and determinism
 
-A scenario TOML has `[scenario]` metadata (`name`, `description`, `profile`, `scale`, `contrast`) and ordered `[[steps]]`. Operations are `profile`, `input`, `text`, `launch`, `safe_return`, `app`, `wait_for`, `capture`, `assert`, and diagnostic-only `sleep`. Predicates cover focus id/label, label presence, route, search query/result count, session/receipt, and app state. Prefer bounded predicates over sleeps. Put profile changes before navigation because they restart the shell.
+A scenario TOML has `[scenario]` metadata (`name`, `description`, `profile`, `scale`, `contrast`) and ordered `[[steps]]`. Operations are `profile`, `input`, `text`, `launch`, `system_menu`, `app`, `wait_for`, `capture`, `assert`, and diagnostic-only `sleep`. Predicates cover focus id/label, label presence, route, search query/result count, session/receipt, and app state. Prefer bounded predicates over sleeps. Put profile changes before navigation because they restart the shell.
 
 ```sh
 ./pf-simctl scenario validate scenarios/search-filter.toml

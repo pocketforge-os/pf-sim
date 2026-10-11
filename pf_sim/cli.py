@@ -12,7 +12,8 @@ from . import audit, capture, doctor, gamepad, inputs, keys, matrix, profiles, s
 from . import measure
 from .config import repo_root, safe_child, sim_home
 from .automation import AutomationClient
-from .authority import AuthorityClient
+from .authority import (AuthorityClient, SYSTEM_MENU_ACK_TIMEOUT_MS,
+                        SYSTEM_MENU_CONTRACT, SYSTEM_MENU_CONTROL)
 from .fixture_app import fixture_config, send_command
 from .supervisor import hook
 
@@ -95,7 +96,7 @@ def parser() -> argparse.ArgumentParser:
     for command in (press, hold, action, sequence):
         command.add_argument("--no-wait", action="store_true")
     listing = input_commands.add_parser("list"); listing.add_argument("--instance", default="default")
-    for name in ("launch", "safe-return", "history"):
+    for name in ("launch", "system-menu", "history"):
         command = commands.add_parser(name); command.add_argument("--instance", default="default")
         if name == "launch": command.add_argument("item_id")
         if name == "history": command.add_argument("--json", action="store_true")
@@ -221,14 +222,19 @@ def main(argv=None) -> int:
             items = json.loads((Path(__file__).parent.parent / "fixtures/catalog-snapshot.json").read_text())["items"]
             print("\n".join(f"item={i['id']} behaviour={fixture_config(i['id'])['behaviour']}" for i in items))
             return 0
-        if args.command in ("launch", "safe-return", "history", "app"):
+        if args.command == "system-menu":
+            inputs.sequence(args.instance, SYSTEM_MENU_CONTROL, "global", 60, 120)
+            AutomationClient(run_dir(args.instance) / "automation.sock").wait_idle()
+            print(f"system_menu_status=sent provider=absent fallback=safe_return "
+                  f"ack_timeout_ms={SYSTEM_MENU_ACK_TIMEOUT_MS} contract={SYSTEM_MENU_CONTRACT}")
+            return 0
+        if args.command in ("launch", "history", "app"):
             path = run_dir(args.instance); client = AuthorityClient(path / "session-authority.sock")
             if args.command == "launch":
                 result = client.launch(args.item_id); status = result.get("result")
                 print(f"launch_status={'ok' if status == 'accepted' else status}"
                       + (f" session={result['session_id']}" if "session_id" in result else ""))
                 return 0 if status == "accepted" else 1
-            if args.command == "safe-return": client.safe_return(); print("safe_return_status=ok"); return 0
             entries = client.history()
             if args.command == "history":
                 print(json.dumps(entries, indent=2, sort_keys=True) if args.json else "\n".join(_history_line(e) for e in entries)); return 0

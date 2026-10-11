@@ -71,6 +71,18 @@ class CliStatusTests(unittest.TestCase):
             self.assertEqual(main(["launch", "../bad"]), 2)
             self.assertIn("reason=invalid_item", stderr.getvalue()); client.assert_not_called()
 
+    def test_system_menu_uses_btn_mode_without_authority_bypass(self):
+        with patch("pf_sim.cli.inputs.sequence") as sequence, \
+                patch("pf_sim.cli.AutomationClient") as automation, \
+                patch("pf_sim.cli.AuthorityClient") as authority, \
+                patch("sys.stdout", new=io.StringIO()) as stdout:
+            self.assertEqual(main(["system-menu"]), 0)
+        sequence.assert_called_once_with("default", "BTN_MODE", "global", 60, 120)
+        automation.return_value.wait_idle.assert_called_once_with()
+        authority.assert_not_called()
+        self.assertIn("contract=tsp-ihne1.36", stdout.getvalue())
+        self.assertIn("ack_timeout_ms=250", stdout.getvalue())
+
     def test_repeat_capture_compares_raster_and_scene_body(self):
         captures = [
             (Path("shot.png"), {"sha256": "same", "scene_body_sha256": "scene-a",

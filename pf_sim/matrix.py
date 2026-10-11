@@ -372,7 +372,9 @@ def _matches(expect: dict, scene: dict, screen: str) -> bool:
 
 
 def _reset(backend: Backend) -> None:
-    backend.execute({"op": "input", "seq": "SafeReturn"})
+    # Use the physical protected Menu control, not the schema-v1 SafeReturn
+    # action name. This remains valid before and after the SystemMenu migration.
+    backend.execute({"op": "input", "seq": "BTN_MODE"})
     for _ in range(8):
         scene = backend.observe()
         screen = _screen(scene)
