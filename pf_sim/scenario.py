@@ -10,10 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
-from . import inputs, predicates, profiles
+from . import inputs, predicates, profiles, system_menu
 from .automation import AutomationClient
-from .authority import (AuthorityClient, SYSTEM_MENU_ACK_TIMEOUT_MS,
-                        SYSTEM_MENU_CONTRACT, SYSTEM_MENU_CONTROL)
+from .authority import AuthorityClient
 from .backend import DesktopBackend
 from .config import run_dir, safe_child, sim_home, validate_name
 from .fixture_app import send_command
@@ -159,11 +158,7 @@ class LiveBackend:
         if op == "text": return self.automation.text(step["value"])
         if op == "launch": return self.authority.launch(step["item"])
         if op == "system_menu":
-            inputs.sequence(self.instance, SYSTEM_MENU_CONTROL, "global", 60, 120)
-            self.automation.wait_idle()
-            return {"action": "SystemMenu", "provider": "absent",
-                    "fallback": "safe_return", "ack_timeout_ms": SYSTEM_MENU_ACK_TIMEOUT_MS,
-                    "contract": SYSTEM_MENU_CONTRACT}
+            return system_menu.send(self.instance)
         if op == "app":
             scene, history, ping = self.observe()
             active = next((entry for entry in reversed(history) if not entry.get("receipt")), None)

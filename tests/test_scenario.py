@@ -58,15 +58,19 @@ class ScenarioTests(unittest.TestCase):
                              "system_menu")
             with self.assertRaisesRegex(ValueError, "unknown_scenario_op"):
                 scenario.load(self.write(tmp, safe_return, "unsafe-bypass.toml"))
-        with patch("pf_sim.scenario.inputs.sequence") as sequence, \
-                patch("pf_sim.scenario.AutomationClient") as automation, \
+        evidence = {"action": "SystemMenu", "control": "BTN_MODE",
+                    "launcher_rev": "95302865bc584ce5e1c96e09df387aa5f58455f6",
+                    "configured_ack_timeout_ms": 250, "contract": "tsp-ihne1.36"}
+        with patch("pf_sim.scenario.system_menu.send", return_value=evidence) as send, \
                 patch("pf_sim.scenario.AuthorityClient") as authority:
             result = scenario.LiveBackend("default").execute({"op": "system_menu"})
-        sequence.assert_called_once_with("default", "BTN_MODE", "global", 60, 120)
-        automation.return_value.wait_idle.assert_called_once_with()
+        send.assert_called_once_with("default")
         authority.assert_not_called()
         self.assertEqual(result["contract"], "tsp-ihne1.36")
-        self.assertEqual(result["ack_timeout_ms"], 250)
+        self.assertEqual(result["configured_ack_timeout_ms"], 250)
+        self.assertEqual(result["control"], "BTN_MODE")
+        self.assertNotIn("provider", result)
+        self.assertNotIn("fallback", result)
 
     def test_providerless_system_menu_scenario_cites_in_ipc(self):
         path = Path(__file__).parents[1] / "scenarios" / "launch-system-menu-fallback.toml"

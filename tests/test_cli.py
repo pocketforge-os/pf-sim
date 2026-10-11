@@ -72,16 +72,21 @@ class CliStatusTests(unittest.TestCase):
             self.assertIn("reason=invalid_item", stderr.getvalue()); client.assert_not_called()
 
     def test_system_menu_uses_btn_mode_without_authority_bypass(self):
-        with patch("pf_sim.cli.inputs.sequence") as sequence, \
-                patch("pf_sim.cli.AutomationClient") as automation, \
+        evidence = {"action": "SystemMenu", "control": "BTN_MODE",
+                    "launcher_rev": "95302865bc584ce5e1c96e09df387aa5f58455f6",
+                    "configured_ack_timeout_ms": 250, "contract": "tsp-ihne1.36"}
+        with patch("pf_sim.cli.system_menu.send", return_value=evidence) as send, \
                 patch("pf_sim.cli.AuthorityClient") as authority, \
                 patch("sys.stdout", new=io.StringIO()) as stdout:
             self.assertEqual(main(["system-menu"]), 0)
-        sequence.assert_called_once_with("default", "BTN_MODE", "global", 60, 120)
-        automation.return_value.wait_idle.assert_called_once_with()
+        send.assert_called_once_with("default")
         authority.assert_not_called()
         self.assertIn("contract=tsp-ihne1.36", stdout.getvalue())
-        self.assertIn("ack_timeout_ms=250", stdout.getvalue())
+        self.assertIn("configured_ack_timeout_ms=250", stdout.getvalue())
+        self.assertIn("launcher_rev=95302865bc584ce5e1c96e09df387aa5f58455f6",
+                      stdout.getvalue())
+        self.assertNotIn("provider=", stdout.getvalue())
+        self.assertNotIn("fallback=", stdout.getvalue())
 
     def test_repeat_capture_compares_raster_and_scene_body(self):
         captures = [

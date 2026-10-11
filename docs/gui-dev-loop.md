@@ -70,12 +70,15 @@ Measurement emits an overlay plus `ink.json`, `gaps.json`, `contrast.json`, `rep
 ```
 
 `launching` lasts until the fixture socket appears. `app quit` is a clean return,
-`system-menu` sends the protected physical `BTN_MODE` input, and `app crash` yields a
-`Crash` receipt. pf-sim starts no menu provider, so `system-menu` exercises the bounded
-providerless fallback into the existing authority `safe_return` path. The simulator models
-the 250 ms acknowledgement bound and cites the complete future interface contract at
-`tsp-ihne1.36`; it does not hard-code menu rows or overflow policy. Profiles use pf-sim’s
-supervisor; a custom profile may select the shell’s desktop-sim supervisor for parity checks.
+`system-menu` first verifies that the selected launcher's effective map binds `SystemMenu`
+to the protected physical `BTN_MODE` input, then sends that control; `app crash` yields a
+`Crash` receipt. The command reports the selected launcher revision and configured 250 ms
+acknowledgement bound, but does not claim that fallback occurred. The committed
+`launch-system-menu-fallback` scenario starts no menu provider and proves the bounded
+providerless fallback only when its later `Returned` receipt arrives. The simulator cites
+the complete future interface contract at `tsp-ihne1.36`; it does not hard-code menu rows or
+overflow policy. Profiles use pf-sim’s supervisor; a custom profile may select the shell’s
+desktop-sim supervisor for parity checks.
 
 ## Scenarios and determinism
 

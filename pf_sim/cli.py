@@ -8,12 +8,11 @@ from pathlib import Path
 
 from .backend import DesktopBackend
 from .config import run_dir, validate_instance, validate_name
-from . import audit, capture, doctor, gamepad, inputs, keys, matrix, profiles, scenario, toolchain
+from . import audit, capture, doctor, gamepad, inputs, keys, matrix, profiles, scenario, system_menu, toolchain
 from . import measure
 from .config import repo_root, safe_child, sim_home
 from .automation import AutomationClient
-from .authority import (AuthorityClient, SYSTEM_MENU_ACK_TIMEOUT_MS,
-                        SYSTEM_MENU_CONTRACT, SYSTEM_MENU_CONTROL)
+from .authority import AuthorityClient
 from .fixture_app import fixture_config, send_command
 from .supervisor import hook
 
@@ -223,10 +222,10 @@ def main(argv=None) -> int:
             print("\n".join(f"item={i['id']} behaviour={fixture_config(i['id'])['behaviour']}" for i in items))
             return 0
         if args.command == "system-menu":
-            inputs.sequence(args.instance, SYSTEM_MENU_CONTROL, "global", 60, 120)
-            AutomationClient(run_dir(args.instance) / "automation.sock").wait_idle()
-            print(f"system_menu_status=sent provider=absent fallback=safe_return "
-                  f"ack_timeout_ms={SYSTEM_MENU_ACK_TIMEOUT_MS} contract={SYSTEM_MENU_CONTRACT}")
+            evidence = system_menu.send(args.instance)
+            print("system_menu_status=sent " + " ".join(
+                f"{key}={value}" for key, value in evidence.items()
+            ))
             return 0
         if args.command in ("launch", "history", "app"):
             path = run_dir(args.instance); client = AuthorityClient(path / "session-authority.sock")
