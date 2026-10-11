@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -6,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from pf_sim.fixture_app import send_command
+from pf_sim.fixture_app import fixture_config, send_command
 
 
 class FixtureAppTests(unittest.TestCase):
@@ -37,3 +38,13 @@ class FixtureAppTests(unittest.TestCase):
                 args=[sys.executable,"-m","pf_sim.fixture_app","--run-dir",tmp,"--session","ok","--item","hollow-tides"]
                 args[args.index(flag)+1]="../bad"
                 self.assertNotEqual(subprocess.run(args,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode,0)
+
+    def test_catalog_launch_targets_use_qualified_fixture_ids(self):
+        root = Path(__file__).parents[1]
+        catalog = json.loads(root.joinpath("fixtures/catalog-snapshot.json").read_text())
+        items = {item["id"]: item for item in catalog["items"]}
+        for fixture_id in ("ridgeline", "hollow-tides", "signal-decay"):
+            with self.subTest(fixture_id=fixture_id):
+                target = items[fixture_id]["variants"][0]["launch_target"]["app_id"]
+                self.assertEqual(target, f"org.pocketforge.{fixture_id}")
+                self.assertEqual(fixture_config(target), fixture_config(fixture_id))

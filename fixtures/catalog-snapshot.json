@@ -33,7 +33,7 @@
             "platform_version": null
           },
           "launch_target": {
-            "app_id": "ridgeline",
+            "app_id": "org.pocketforge.ridgeline",
             "descriptor_path": "fixtures/ridgeline.toml",
             "observed_digest": "fixture"
           }
@@ -70,7 +70,7 @@
             "platform_version": null
           },
           "launch_target": {
-            "app_id": "hollow-tides",
+            "app_id": "org.pocketforge.hollow-tides",
             "descriptor_path": "fixtures/hollow-tides.toml",
             "observed_digest": "fixture"
           }
@@ -727,7 +727,7 @@
             "platform_version": null
           },
           "launch_target": {
-            "app_id": "signal-decay",
+            "app_id": "org.pocketforge.signal-decay",
             "descriptor_path": "fixtures/signal-decay.toml",
             "observed_digest": "fixture"
           }
