@@ -18,6 +18,7 @@ from pathlib import Path
 from .config import run_dir, validate_instance
 from .contract import DeviceContract
 from .evdev_codes import EV_KEY, EV_SYN, SYN_REPORT
+from .uinput_domain_guard import guarded_open
 
 DEVICE_NAME = "pocketforge-sim-gamepad"
 UINPUT_PATH = "/dev/uinput"
@@ -82,8 +83,9 @@ def contract_codes() -> list[int]:
 
 
 class UInputDevice:
-    def __init__(self, codes: list[int], instance: str):
-        self.fd = os.open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK)
+    def __init__(self, codes: list[int], instance: str, opener=os.open, domain_probe=None):
+        self.fd = guarded_open(UINPUT_PATH, os.O_WRONLY | os.O_NONBLOCK,
+                               probe=domain_probe, opener=opener)
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
         for code in codes:
             fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)

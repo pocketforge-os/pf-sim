@@ -1,0 +1,7 @@
+# Classified kernel-input creation and exposure occurrences.
+# TRANSITIONAL domain=pf-builder-vm: pf_sim/gamepad.py scenario CI use;
+# removal/migration is tsp-ihne1.56.5.
+tests/test_gamepad_device.py	047fe58328b2e85e031fca4f6cd0235b8eda64d6d05ac66eaa7389e27fd8a24b	# tests/test_gamepad_device.py:24 reason = "/dev/uinput is not writable"
+pf_sim/gamepad.py	7622a8864362459b4d79d9dae3064c99c323a1fb7a5dab7df51f9af8ca7835ee	# pf_sim/gamepad.py:24 UINPUT_PATH = "/dev/uinput"
+pf_sim/gamepad.py	002a0566ccfd752e3e4bd9b81332439dfe240aa9e0bb473d257e5da014314b62	# pf_sim/gamepad.py:37 UI_DEV_CREATE = _ioc(0, ord("U"), 1, 0)
+pf_sim/gamepad.py	d62e9bc9a5a18126feeb3f3c5722f1950c288971f17f8e772d7358f31af49f5f	# pf_sim/gamepad.py:93 fcntl.ioctl(self.fd, UI_DEV_CREATE)
