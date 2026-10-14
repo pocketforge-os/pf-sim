@@ -1,6 +1,7 @@
 import csv
 import hashlib
 from pathlib import Path
+import subprocess
 import unittest
 from unittest import mock
 
@@ -11,6 +12,36 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class UinputDomainTest(unittest.TestCase):
+    def test_systemd_detect_virt_timeout_is_typed_and_refuses(self):
+        with mock.patch.object(guard.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired("systemd-detect-virt", 2)) as run:
+            probe = guard.probe_host()
+
+        self.assertEqual(probe.container, guard.Check.ERROR)
+        with self.assertRaisesRegex(
+                guard.UnsafeUinputDomain,
+                r"reason=unsafe_uinput_domain domain=probe-error probe=systemd-detect-virt"):
+            guard.require_safe(probe)
+        self.assertEqual(run.call_args.kwargs["timeout"], 2.0)
+
+    def test_loginctl_timeout_is_typed_and_refuses(self):
+        calls = [mock.Mock(returncode=1), mock.Mock(returncode=0)]
+        calls[0].stdout = ""
+        calls[1].stdout = ""
+        with mock.patch.object(guard, "_probe_dt", return_value=("missing", frozenset())), \
+                mock.patch.object(guard, "_probe_marker", return_value="valid"), \
+                mock.patch.object(guard.subprocess, "run",
+                                  side_effect=(*calls,
+                                               subprocess.TimeoutExpired("loginctl", 2))) as run:
+            probe = guard.probe_host()
+
+        self.assertEqual(probe.logind, "unreadable")
+        with self.assertRaisesRegex(
+                guard.UnsafeUinputDomain,
+                r"reason=unsafe_uinput_domain domain=probe-error probe=loginctl"):
+            guard.require_safe(probe)
+        self.assertEqual(run.call_args.kwargs["timeout"], 2.0)
+
     def test_gamepad_creator_refuses_before_its_opener_and_allows_guest(self):
         bare = guard.Probe(guard.Check.NO, guard.Check.NO, "missing", frozenset(),
                            "missing", "not-probed")
