@@ -17,6 +17,8 @@ FIXTURE = Path(__file__).parent / "fixtures" / "device-minimal.json"
 
 class GamepadDeviceTests(unittest.TestCase):
     def require_uinput(self):
+        if os.environ.get("PF_SIM_REQUIRE_UINPUT") != "1":
+            self.skipTest("runner-host uinput frozen by tsp-ihne1.56; migration tsp-ihne1.56.5")
         if os.access(gamepad.UINPUT_PATH, os.W_OK):
             return
         reason = "/dev/uinput is not writable"

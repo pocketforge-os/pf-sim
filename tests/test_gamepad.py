@@ -46,10 +46,12 @@ class ProtocolTests(unittest.TestCase):
             root.mkdir(parents=True)
             path = root / "gamepad.sock"
             received = []
+            listening = threading.Event()
 
             def fake_holder():
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
-                    server.bind(str(path)); server.listen(1)
+                    server.bind(str(path)); server.listen(1); server.settimeout(2)
+                    listening.set()
                     connection, _ = server.accept()
                     with connection:
                         received.append(connection.recv(4096))
@@ -57,9 +59,10 @@ class ProtocolTests(unittest.TestCase):
 
             thread = threading.Thread(target=fake_holder)
             thread.start()
-            while not path.exists(): pass
+            self.assertTrue(listening.wait(2), "fake holder did not start listening")
             self.assertEqual(gamepad.request("default", {"command": "press", "code": 305})["status"], "ok")
-            thread.join()
+            thread.join(2)
+            self.assertFalse(thread.is_alive(), "fake holder did not exit")
             self.assertTrue(received[0].endswith(b"\n"))
             self.assertEqual(json.loads(received[0]), {"command": "press", "code": 305})
 

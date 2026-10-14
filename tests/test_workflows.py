@@ -64,12 +64,14 @@ class WorkflowTests(unittest.TestCase):
                         self.assertNotIn("runner.", line, workflow_name)
                         self.assertNotIn("steps.", line, workflow_name)
 
-    def test_reusable_workflow_configures_simulated_gamepad_event_nodes(self):
-        step = self.named_step("pf-sim-scenarios.yml", "Enable uinput")
+    def test_reusable_workflow_quarantines_runner_host_input(self):
+        workflow = (self.workflows / "pf-sim-scenarios.yml").read_text()
+        step = self.named_step("pf-sim-scenarios.yml", "Enforce P0 host-input quarantine")
 
-        self.assertIn("/etc/udev/rules.d/99-pf-sim-gamepad.rules", step)
-        self.assertIn('ATTRS{name}=="pocketforge-sim-gamepad:*"', step)
-        self.assertIn("sudo udevadm control --reload-rules", step)
+        self.assertNotIn("- name: Enable uinput", workflow)
+        self.assertNotIn("- name: Run scenarios", workflow)
+        self.assertIn("test_uinput_domain.py", step)
+        self.assertIn("uinput_inventory.py --self-test", step)
 
     def test_artifact_upload_tolerates_early_failure(self):
         workflow = (self.workflows / "pf-sim-scenarios.yml").read_text()
@@ -83,10 +85,10 @@ class WorkflowTests(unittest.TestCase):
         cleanup = self.named_step(workflow.name, "Remove strict resolver fixtures")
         stage_index = next(index for index, line in enumerate(lines)
                            if line.strip() == "- name: Stage strict resolver fixtures")
-        scenario_index = next(index for index, line in enumerate(lines)
-                              if line.strip() == "- name: Run scenarios")
+        build_index = next(index for index, line in enumerate(lines)
+                           if line.strip() == "- name: Build selected launcher toolchain")
 
-        self.assertLess(stage_index, scenario_index)
+        self.assertLess(stage_index, build_index)
         self.assertIn("scripts/strict-resolver-fixtures.sh install /", stage)
         self.assertIn("/opt/pocketforge/apps", cleanup)
         self.assertIn("scripts/strict-resolver-fixtures.sh remove /", cleanup)
