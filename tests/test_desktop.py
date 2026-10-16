@@ -229,3 +229,40 @@ class DesktopTests(unittest.TestCase):
         self.assertNotEqual(after["supervisor"]["pid"], before["supervisor"]["pid"])
         command = Path(f"/proc/{after['supervisor']['pid']}/cmdline").read_bytes().split(b"\0")
         self.assertIn(b"--desktop-sim-supervise", command)
+
+    def test_up_hands_shell_the_run_private_input_fifo(self):
+        """Wave-1 private input route (tsp-ihne1.56.5).
+
+        Positive control: pf-shell is launched with --input pointing at a
+        FIFO inside the instance run dir and run.json records it.
+        Negative control: no /dev/input path may reach the shell command
+        or the metadata; a mutant restoring the kernel event node fails.
+        """
+        import stat
+        toolchain = self.home / "toolchain"
+        toolchain.mkdir(parents=True, exist_ok=True)
+        fixture = Path(__file__).parent / "fixtures" / "device-minimal.json"
+        (toolchain / "device-contract.json").write_text(fixture.read_text())
+        spawned = []
+        original = self.backend._spawn
+
+        def spy(name, command, *args, **kwargs):
+            spawned.append((name, [str(part) for part in command]))
+            return original(name, command, *args, **kwargs)
+
+        with patch.object(self.backend, "_spawn", spy), \
+                patch.object(self.backend, "_wait_automation", return_value=True):
+            path = self.backend.up(shell_bin=self.bin / "pf-shell",
+                                   authorityd_bin=self.bin / "pf-session-authorityd")
+        meta = json.loads((path / "run.json").read_text())
+        self.assertEqual(meta["input_source"], "event-fifo")
+        fifo = Path(meta["event_node"])
+        self.assertEqual(fifo, path / "input.fifo")
+        self.assertTrue(stat.S_ISFIFO(fifo.stat().st_mode))
+        self.assertFalse(meta["event_node"].startswith("/dev/input"))
+        shell = dict((name, command) for name, command in spawned)["shell"]
+        self.assertIn("--input", shell)
+        self.assertEqual(shell[shell.index("--input") + 1], str(fifo))
+        self.assertIn("--automation-socket", shell)
+        for part in shell:
+            self.assertFalse(part.startswith("/dev/input"))

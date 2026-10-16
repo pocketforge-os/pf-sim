@@ -4,7 +4,7 @@ This is the fresh-session path. Run commands through the checkout’s `pf-simctl
 
 ## Prerequisites and toolchain
 
-Set a writable runtime directory, build the pinned launcher/runtime once, then make every required doctor row green. `DISPLAY` and event-node access are advisory unless you need windowed or controller input; CI sets `PF_SIM_REQUIRE_UINPUT=1` so missing uinput is fatal.
+Set a writable runtime directory, build the pinned launcher/runtime once, then make every required doctor row green. `DISPLAY` is advisory unless you want windowed observation; the event-node row probes the dormant guarded kernel creator only, because the default input route is a run-private FIFO that needs no kernel device (tsp-ihne1.56.5).
 
 The merged runtime resolves launches against the production fixed roots. On a disposable
 desktop or CI host, stage the checked-in synthetic descriptors before scenario work and remove
@@ -22,7 +22,7 @@ export XDG_RUNTIME_DIR=/run/user/$(id -u)
 ./pf-simctl doctor
 ```
 
-Doctor checks Python, Pillow, Weston and its kiosk/screenshot helpers, Cargo, xkbcommon, the runtime directory, toolchain manifest, uinput event-node readability, and orphaned pf-sim shells. Use a logind seat ACL, membership in `input`, or a udev rule narrowly matching `pocketforge-sim-gamepad:*` when the event node is unreadable.
+Doctor checks Python, Pillow, Weston and its kiosk/screenshot helpers, Cargo, xkbcommon, the runtime directory, toolchain manifest, uinput event-node readability, and orphaned pf-sim shells. The event-node row is advisory: it exercises the dormant guarded kernel creator that wave 2 ports into the pfvd guest (tsp-ihne1.56.5); scenario input no longer needs a logind seat ACL, `input` membership, or a udev rule.
 
 ## Bring-up, profiles, and presets
 
@@ -39,7 +39,7 @@ Headless pixman is the reproducible default; windowed mode needs `DISPLAY` and i
 
 ## Input and text
 
-The default virtual gamepad sends evdev codes through the launcher’s real `pf-input-map` contract. Inspect it with `input list` and drive semantic actions with `input action`, physical controls with `input press/hold`, or an ordered expression with `input seq`. These commands wait for the resulting frame unless `--no-wait` is deliberate.
+The default virtual gamepad writes native input_event frames into a run-private FIFO that pf-shell reads through `--input` (tsp-ihne1.56.5); codes still resolve through the launcher’s real `pf-input-map` contract. Inspect it with `input list` and drive semantic actions with `input action`, physical controls with `input press/hold`, or an ordered expression with `input seq`. These commands wait for the resulting frame unless `--no-wait` is deliberate.
 
 ```sh
 ./pf-simctl input action Search.open
@@ -48,11 +48,11 @@ The default virtual gamepad sends evdev codes through the launcher’s real `pf-
 ./pf-simctl text --clear
 ```
 
-Text uses an automation-only seam because the handheld has no text keyboard. `key KEYSYM...` is only a fallback after `up --no-gamepad --display windowed`; it is intentionally rejected headlessly.
+Text uses an automation-only seam because the handheld has no text keyboard. `key KEYSYM...` maps keysyms to Linux input codes and taps the same run-private FIFO through the gamepad holder, so it works headless and windowed alike on the FIFO route (an instance brought up `--no-gamepad` has no holder and cannot use it).
 
 ## Frame-complete evidence and measurement
 
-`capture NAME` waits for a presented frame and writes `NAME.png`, `NAME.scene.json`, and a metadata sidecar under `$PF_SIM_HOME/captures/INSTANCE`. The scene is the semantic assertion surface; for example, assert `search_query` and `search_result_ids`, not a hand-read screenshot. `capture --repeat 2` compares raster and semantic hashes. `--raw` is the legacy compositor fallback.
+`capture NAME` waits for a presented frame and writes `NAME.png`, `NAME.scene.json`, and a metadata sidecar under `$PF_SIM_HOME/captures/INSTANCE`. The scene is the semantic assertion surface; for example, assert `search_query` and `search_result_ids`, not a hand-read screenshot. `capture --repeat 2` compares raster and semantic hashes. `--raw` is the headless-only compositor fallback that reads the instance's own weston socket; the windowed host-desktop branch was deleted by tsp-ihne1.56.5.
 
 ```sh
 ./pf-simctl capture search-e
@@ -132,12 +132,12 @@ Every CLI `reason=` belongs to one of these remedies (dynamic suffixes are shown
 | `device_contract_absent`, `shell_bin_missing`, `authorityd_bin_missing`, `launcher_source_dirty` | Run `toolchain build`; remove uncommitted files from its generated launcher checkout or use a new empty `PF_SIM_HOME`. |
 | `xdg_runtime_dir_missing`, `display_missing`, `weston_died`, `authorityd_died`, `supervisor_died`, `shell_died`, `automation_socket_died` | Set the required display/runtime environment, run `doctor`, then inspect the component log path printed by `up`. |
 | `instance_already_up`, `instance_not_running`, `stale_state`, `stale_marker`, `lock`, `socket` | Use `--replace`, target the right instance, or stop it cleanly. Never delete state outside `PF_SIM_HOME`. |
-| `event_node_timeout`, `event_node_unreadable`, `uinput_sysname_missing`, `gamepad_create_failed`, `gamepad_holder_would_not_stop`, `gamepad_protocol_error`, `holder_token_mismatch` | Run `doctor`; restore uinput and event-node ACLs, then `down --reap-orphans` before retrying. |
+| `event_node_timeout`, `event_node_unreadable`, `uinput_sysname_missing`, `gamepad_create_failed`, `gamepad_holder_would_not_stop`, `gamepad_protocol_error`, `holder_token_mismatch` | Run `doctor`; check the instance run directory is writable (the FIFO route needs no kernel device or ACLs), then `down --reap-orphans` before retrying. |
+| `input_fifo_not_open`, `input_fifo_write_failed`, `unsupported_keysym`, `raw_capture_requires_headless` | The private input FIFO had no consumer: confirm pf-shell runs with `--input` pointed at the run's FIFO (`up` without `--no-gamepad`). `key` accepts only mapped keysyms; `--raw` capture works only on the headless route. |
 | `automation_down`, `automation_error`, `automation_protocol_error`, `automation_timeout`, `authority_error`, `authority_request_too_large`, `authority_response_too_large`, `authority_truncated_frame` | Check instance status and component logs; restart the instance. Reduce an oversized request rather than bypassing the protocol. |
 | `capture_never_settled`, `capture_frame_drift`, `screenshot_missing` | Check shell/Weston logs and retry from a stable scene. `degraded-authority` normally settles as `content-stable` with `revision_churn=true` because of launcher bug `tsp-cric`; that is not a pf-sim failure. |
 | `assertion_failed`, `predicate_timeout`, `input_not_observed`, `route_mismatch`, `route_reset_failed`, `app_not_running`, `cell_error` | Inspect the step/cell report and scene JSON; correct navigation, expectation, or fixture ordering. |
 | `diff_requires_two_captures`, `diff_size_mismatch` | Supply two captures with identical dimensions. |
-| `headless_input_arrives_in_p2` | Use the gamepad input verbs, or use `key` only in windowed `--no-gamepad` mode. |
 | `unsupported_matrix_jobs` | Use `--jobs 1`; parallel matrix execution is not implemented. |
 
 If `down` says `not_running` but doctor reports `orphaned pf-sim shells=N`, run `./pf-simctl down --reap-orphans`. Reaping matches only `pf-shell --state-dir` paths contained under the current `$PF_SIM_HOME/runs`; it cannot target unrelated shells such as `/home/matt/pf-desktop-test`.

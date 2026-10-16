@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import shutil
-import struct
 import subprocess
 import tempfile
 import time
@@ -62,13 +61,6 @@ def _content_stable(client: AutomationClient, quiet_ms: int, timeout_ms: int) ->
         previous = current
 
 
-def _xwd_to_png(source: Path, target: Path) -> None:
-    data = source.read_bytes(); header = struct.unpack(">25I", data[:100])
-    size, width, height, bpl, colors = header[0], header[4], header[5], header[12], header[19]
-    offset = size + colors * 12
-    Image.frombytes("RGB", (width, height), data[offset:offset + height*bpl], "raw", "BGRX", bpl).save(target)
-
-
 def capture(name: str, instance: str, settle: float = .5, *, raw=False, quiet_ms=150, timeout_ms=5000) -> tuple[Path, dict]:
     target_dir = safe_child(sim_home() / "captures", "instance", instance)
     validated_target = safe_child(target_dir, "capture", name)
@@ -123,21 +115,21 @@ def capture(name: str, instance: str, settle: float = .5, *, raw=False, quiet_ms
         sidecar["sha256"] = sidecar["png_sha256"]
         target.with_suffix(".json").write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
         return target, sidecar
+    # tsp-ihne1.56.5: the host-desktop raw branch (window activation plus an
+    # X dump of the compositor window) is deleted. Raw capture only reads the
+    # instance's own headless compositor socket; the automation route above
+    # already captures the exact instance and stays the supported path.
+    if meta["display"] != "headless":
+        raise RuntimeError("reason=raw_capture_requires_headless")
     time.sleep(settle)
     with tempfile.TemporaryDirectory() as temporary:
         cwd = Path(temporary)
-        if meta["display"] == "headless":
-            env = os.environ.copy(); env["WAYLAND_DISPLAY"] = meta["weston_socket"]
-            env["XDG_RUNTIME_DIR"] = meta["xdg_runtime_dir"]
-            subprocess.run(["weston-screenshooter"], cwd=cwd, env=env, check=True)
-            shots = sorted(cwd.glob("wayland-screenshot-*.png"))
-            if not shots: raise RuntimeError("reason=screenshot_missing")
-            shutil.move(shots[-1], target)
-        else:
-            window = subprocess.check_output(["xdotool", "search", "--class", "weston"], text=True).splitlines()[-1]
-            xwd = cwd / "capture.xwd"
-            with xwd.open("wb") as output: subprocess.run(["xwd", "-id", window, "-silent"], stdout=output, check=True)
-            _xwd_to_png(xwd, target)
+        env = os.environ.copy(); env["WAYLAND_DISPLAY"] = meta["weston_socket"]
+        env["XDG_RUNTIME_DIR"] = meta["xdg_runtime_dir"]
+        subprocess.run(["weston-screenshooter"], cwd=cwd, env=env, check=True)
+        shots = sorted(cwd.glob("wayland-screenshot-*.png"))
+        if not shots: raise RuntimeError("reason=screenshot_missing")
+        shutil.move(shots[-1], target)
     sidecar = {key: meta.get(key) for key in ("instance", "profile", "scale", "contrast", "launcher_rev", "runtime_rev", "display")}
     sidecar.update(captured_at=datetime.now(timezone.utc).isoformat(), sha256=sha256(target))
     target.with_suffix(".json").write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")

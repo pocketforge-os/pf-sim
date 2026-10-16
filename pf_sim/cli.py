@@ -69,7 +69,7 @@ def parser() -> argparse.ArgumentParser:
     text_command = commands.add_parser("text")
     text_command.add_argument("value", nargs="?", default=""); text_command.add_argument("--clear", action="store_true")
     text_command.add_argument("--instance", default="default")
-    key = commands.add_parser("key", help="raw windowed keyboard fallback")
+    key = commands.add_parser("key", help="private-FIFO keyboard fallback")
     key.add_argument("keysyms", nargs="+"); key.add_argument("--instance", default="default"); key.add_argument("--delay", type=float, default=.35)
     pads = commands.add_parser("gamepad").add_subparsers(dest="gamepad_command", required=True)
     for name in ("create", "destroy", "status"):
@@ -282,11 +282,7 @@ def main(argv=None) -> int:
             result = AutomationClient(run_dir(args.instance) / "automation.sock").text("" if args.clear else args.value)
             print(f"text_status=ok frames={result['frames']} revision={result['revision']}"); return 0
         if args.command == "key":
-            try: keys.send(args.keysyms, args.instance, args.delay)
-            except RuntimeError as error:
-                if str(error) == "reason=headless_input_arrives_in_p2":
-                    print("key_status=unsupported reason=headless_input_arrives_in_p2"); return 2
-                raise
+            keys.send(args.keysyms, args.instance, args.delay)
             print(f"key_status=ok count={len(args.keysyms)}"); return 0
         if args.command == "gamepad":
             if args.gamepad_command == "create":
@@ -324,7 +320,7 @@ def main(argv=None) -> int:
             selected = profiles.resolve_profile(args.profile)
             path = impl.up(instance=args.instance, display=args.display, replace=args.replace, shell_bin=args.shell_bin, authorityd_bin=args.authorityd_bin,
                            profile=selected, scale=args.scale, contrast=args.contrast, no_gamepad=args.no_gamepad)
-            source = "wayland-keyboard" if args.no_gamepad else "evdev"
+            source = "wayland-keyboard" if args.no_gamepad else "event-fifo"
             automation = "down" if args.no_gamepad else "ready"
             print(f"up_status=ready instance={args.instance} display={args.display} run_dir={path} weston_socket=pf-sim-{args.instance} input_source={source} automation={automation}")
             return 0

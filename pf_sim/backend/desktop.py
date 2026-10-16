@@ -191,7 +191,7 @@ class DesktopBackend(Backend):
                 "authority": profile.authority if profile else True,
                 "shell_extra_args": list(profile.extra_args) if profile else [],
                 "supervisor": profile.supervisor if profile else "shell",
-                "input_source": "wayland-keyboard" if no_gamepad else "evdev",
+                "input_source": "wayland-keyboard" if no_gamepad else "event-fifo",
                 "event_node": None if pad is None else pad["event_node"],
                 "gamepad": None if pad is None else {key: pad.get(key) for key in ("pid", "start_time", "event_node")},
             }
@@ -295,11 +295,11 @@ class DesktopBackend(Backend):
         env["XDG_RUNTIME_DIR"] = meta["xdg_runtime_dir"]
         env["PF_POWER_SUPPLY_ROOT"] = str(path / "power_supply")
         command = [shell, "--wayland", "--device-fixtures", "--state-dir", str(path / "shell"), "--session-socket", str(authority_socket), "--catalog-snapshot", str(repo_root() / "fixtures/catalog-snapshot.json")] + list(profile.extra_args)
-        if meta.get("input_source") == "evdev":
+        if meta.get("input_source") == "event-fifo":
             env["PF_SHELL_AUTOMATION"] = "1"
             command += ["--input", meta["event_node"], "--automation-socket", str(path / "automation.sock")]
         process = self._spawn("shell", command, path, records, env)
-        if meta.get("input_source") == "evdev":
+        if meta.get("input_source") == "event-fifo":
             if not self._wait_automation(path / "automation.sock", process):
                 raise RuntimeError("reason=automation_socket_died")
         else:

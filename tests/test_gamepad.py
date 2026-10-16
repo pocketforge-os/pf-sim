@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import stat
 import subprocess
 import tempfile
 import threading
@@ -181,3 +182,113 @@ class LifecycleTests(unittest.TestCase):
             with patch.object(gamepad, "request", side_effect=FileNotFoundError):
                 self.assertEqual(gamepad.destroy("matching"), "destroyed")
             self.assertIsNotNone(holder.poll())
+
+
+class PrivateEventFifoTests(unittest.TestCase):
+    """Wave-1 private input route (tsp-ihne1.56.5).
+
+    The holder serves native input_event frames over a run-private FIFO;
+    nothing opens /dev/uinput or binds /dev/input/* on the runner host.
+    Positive control: frames round-trip through the socket protocol.
+    Negative control: hold() must not construct a kernel uinput device,
+    and a write with no consumer must fail closed instead of blocking or
+    silently succeeding.
+    """
+
+    def _seed_contract(self, home: Path) -> None:
+        toolchain = home / "toolchain"
+        toolchain.mkdir(parents=True, exist_ok=True)
+        fixture = Path(__file__).parent / "fixtures" / "device-minimal.json"
+        (toolchain / "device-contract.json").write_text(fixture.read_text())
+
+    def test_fifo_writer_frames_round_trip(self):
+        from pf_sim import event_fifo
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "input.fifo"
+            os.mkfifo(path)
+            received = []
+            done = threading.Event()
+
+            def reader():
+                fd = os.open(path, os.O_RDONLY)
+                try:
+                    data = b""
+                    while len(data) < 48:
+                        data += os.read(fd, 48 - len(data))
+                    received.append(data)
+                finally:
+                    os.close(fd)
+                    done.set()
+
+            thread = threading.Thread(target=reader, daemon=True)
+            thread.start()
+            writer = event_fifo.FifoWriter(path)
+            try:
+                writer.write(event_fifo.pack_event(1, 305, 1)
+                             + event_fifo.pack_event(0, 0, 0))
+                self.assertTrue(done.wait(2), "fifo reader did not receive frames")
+            finally:
+                writer.close()
+            self.assertEqual(received[0], gamepad.pack_event(1, 305, 1) + gamepad.pack_event(0, 0, 0))
+
+    def test_fifo_writer_fails_closed_without_a_consumer(self):
+        from pf_sim import event_fifo
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "input.fifo"
+            os.mkfifo(path)
+            writer = event_fifo.FifoWriter(path, open_timeout=0.2)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "reason=input_fifo_not_open"):
+                    writer.write(event_fifo.pack_event(1, 305, 1))
+            finally:
+                writer.close()
+
+    def test_holder_serves_frames_over_run_private_fifo(self):
+        from pf_sim import evdev_read
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            home = Path(tmp)
+            self._seed_contract(home)
+            instance = "fifo-int"
+            state_path = home / "runs" / instance / "gamepad.json"
+            try:
+                gamepad.create(instance)
+                state = json.loads(state_path.read_text())
+                event_node = Path(state["event_node"])
+                self.assertEqual(event_node, home / "runs" / instance / "input.fifo")
+                self.assertTrue(stat.S_ISFIFO(event_node.stat().st_mode))
+                self.assertFalse(str(event_node).startswith("/dev/input"))
+                frames = []
+                ready = threading.Event()
+
+                def reader():
+                    frames.extend(evdev_read.read_events(str(event_node), 4, ready=ready))
+
+                thread = threading.Thread(target=reader, daemon=True)
+                thread.start()
+                self.assertTrue(ready.wait(2), "fifo consumer never became ready")
+                response = gamepad.request(instance, {"command": "tap", "code": 305, "hold_ms": 10})
+                self.assertEqual(response["status"], "ok")
+                thread.join(2)
+                self.assertEqual(frames, [(1, 305, 1), (0, 0, 0), (1, 305, 0), (0, 0, 0)])
+            finally:
+                gamepad.destroy(instance)
+            self.assertFalse(state_path.exists())
+            self.assertFalse((home / "runs" / instance / "input.fifo").exists(),
+                             "holder left the fifo behind")
+
+    def test_holder_tap_without_consumer_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            self._seed_contract(Path(tmp))
+            instance = "fifo-noreader"
+            try:
+                gamepad.create(instance)
+                with self.assertRaisesRegex(RuntimeError, "reason=input_fifo_not_open"):
+                    gamepad.request(instance, {"command": "tap", "code": 305, "hold_ms": 10})
+            finally:
+                gamepad.destroy(instance)
+
+    def test_hold_never_creates_a_kernel_device(self):
+        import inspect
+        source = inspect.getsource(gamepad.hold)
+        for needle in ("UInputDevice", "guarded_open", "find_event_node", "uinput"):
+            self.assertNotIn(needle, source)
