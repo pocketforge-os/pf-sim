@@ -68,8 +68,18 @@ class WorkflowTests(unittest.TestCase):
         workflow = (self.workflows / "pf-sim-scenarios.yml").read_text()
         step = self.named_step("pf-sim-scenarios.yml", "Enforce P0 host-input quarantine")
 
+        # Wave 1 (tsp-ihne1.56.5): scenario/matrix/audit execution is restored
+        # over the run-private FIFO route; the host uinput/display routes stay
+        # deleted. A mutant re-adding any of them must fail these assertions.
+        self.assertIn("- name: Run scenarios", workflow)
+        self.assertIn("- name: Run reduced product-010 matrix", workflow)
+        self.assertIn("- name: Reproduce product-010 audits", workflow)
         self.assertNotIn("- name: Enable uinput", workflow)
-        self.assertNotIn("- name: Run scenarios", workflow)
+        self.assertNotIn("modprobe", workflow)
+        self.assertNotIn("PF_SIM_REQUIRE_UINPUT", workflow)
+        self.assertNotIn("/dev/uinput", workflow)
+        self.assertNotIn("/dev/input", workflow)
+        self.assertNotIn("xdotool", workflow)
         self.assertIn("test_uinput_domain.py", step)
         self.assertIn("uinput_inventory.py --self-test", step)
 

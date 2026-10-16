@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import event_fifo
 from .config import run_dir, validate_instance
 from .contract import DeviceContract
 from .evdev_codes import EV_KEY, EV_SYN, SYN_REPORT
@@ -285,16 +286,28 @@ def destroy(instance: str) -> str:
 
 
 def hold(instance: str, token: str) -> int:
+    """Serve input commands over the per-instance socket.
+
+    Wave 1 (tsp-ihne1.56.5): frames are written to a run-private FIFO that
+    pf-shell consumes through --input. The kernel creator above stays as the
+    dormant wave-2 guest port; the holder never uses it.
+    """
     root = run_dir(instance)
     root.mkdir(parents=True, exist_ok=True)
     sock_path, state_path = _paths(instance)
     sock_path.unlink(missing_ok=True)
     name = device_name(instance)
-    device = UInputDevice(contract_codes(), instance)
+    fifo = event_fifo.create(instance)
+    writer = event_fifo.FifoWriter(fifo)
+
+    def emit(code: int, value: int) -> None:
+        writer.write(event_fifo.pack_event(EV_KEY, code, value)
+                     + event_fifo.pack_event(EV_SYN, SYN_REPORT, 0))
+
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     running = True
     try:
-        event_node = find_event_node(device.sysname)
+        event_node = str(fifo)
         server.bind(str(sock_path))
         server.listen(4)
         state_path.write_text(json.dumps({"pid": os.getpid(), "start_time": proc_start(os.getpid()),
@@ -309,11 +322,11 @@ def hold(instance: str, token: str) -> int:
                     command = json.loads(reader.readline())
                     kind = command.get("command")
                     if kind in ("press", "release"):
-                        device.emit(int(command["code"]), 1 if kind == "press" else 0)
+                        emit(int(command["code"]), 1 if kind == "press" else 0)
                     elif kind == "tap":
-                        device.emit(int(command["code"]), 1)
+                        emit(int(command["code"]), 1)
                         time.sleep(max(0, int(command.get("hold_ms", 60))) / 1000)
-                        device.emit(int(command["code"]), 0)
+                        emit(int(command["code"]), 0)
                     elif kind == "status":
                         pass
                     elif kind == "quit":
@@ -321,14 +334,17 @@ def hold(instance: str, token: str) -> int:
                     else:
                         raise ValueError("reason=unknown_gamepad_command")
                     response = {"status": "ok", "event_node": event_node, "token": token}
-                except (ValueError, KeyError, TypeError) as error:
+                except (ValueError, KeyError, TypeError, RuntimeError) as error:
                     response = {"status": "error", "reason": str(error)}
+                except OSError:
+                    response = {"status": "error", "reason": "reason=input_fifo_write_failed"}
                 connection.sendall(json.dumps(response).encode() + b"\n")
     finally:
         server.close()
-        device.close()
+        writer.close()
         sock_path.unlink(missing_ok=True)
         state_path.unlink(missing_ok=True)
+        fifo.unlink(missing_ok=True)
     return 0
 
 

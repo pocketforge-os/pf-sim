@@ -140,3 +140,23 @@ class CaptureTests(unittest.TestCase):
             with patch.dict(os.environ, {"PF_SIM_HOME":tmp, "PATH":fake + os.pathsep + os.environ["PATH"]}):
                 png, _ = capture("shot.v1", "default", 0, raw=True)
             self.assertEqual(png.name, "shot.v1.png")
+
+    def test_raw_capture_refuses_windowed_display(self):
+        import pf_sim.capture as capture_module
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); run = root / "runs/default"; run.mkdir(parents=True)
+            run.joinpath("run.json").write_text(json.dumps({"instance":"default","profile":"first-run","scale":"100","contrast":"default","launcher_rev":"l","runtime_rev":"r","display":"windowed","weston_socket":"pf-sim-default","xdg_runtime_dir":tmp}))
+            def forbidden(*_args, **_kwargs):
+                raise AssertionError("windowed raw capture must not invoke host tools")
+            with patch.dict(os.environ, {"PF_SIM_HOME":tmp}), \
+                    patch.object(capture_module.subprocess, "run", side_effect=forbidden), \
+                    patch.object(capture_module.subprocess, "check_output", side_effect=forbidden):
+                with self.assertRaisesRegex(RuntimeError, "reason=raw_capture_requires_headless"):
+                    capture("shot", "default", 0, raw=True)
+
+    def test_source_has_no_host_desktop_tools(self):
+        import inspect
+        import pf_sim.capture as capture_module
+        source = inspect.getsource(capture_module)
+        for needle in ("xdotool", "xwd", "windowactivate"):
+            self.assertNotIn(needle, source)
