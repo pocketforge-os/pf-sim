@@ -32,11 +32,16 @@ def fifo_path(instance: str):
 def create(instance: str):
     path = fifo_path(instance)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        if not stat.S_ISFIFO(path.stat().st_mode):
-            raise RuntimeError("reason=input_fifo_path_not_a_fifo")
-    else:
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
         os.mkfifo(path, 0o600)
+        return path
+    if stat.S_ISLNK(mode) or not stat.S_ISFIFO(mode):
+        # A stale or planted symlink (even one pointing at another FIFO)
+        # would let the holder write outside the run-private directory, so
+        # it is refused instead of followed (pf-sim#12 review note).
+        raise RuntimeError("reason=input_fifo_path_not_a_fifo")
     return path
 
 
@@ -63,7 +68,12 @@ class FifoWriter:
 
     def _open(self) -> None:
         try:
-            fd = os.open(self.path, os.O_WRONLY)
+            # O_NOFOLLOW: the run-private FIFO must be opened as-is; a
+            # symlink swapped in after create() is refused (ELOOP) rather
+            # than followed out of the instance run directory (pf-sim#12
+            # review note). The failure stays closed: write() then raises
+            # reason=input_fifo_not_open.
+            fd = os.open(self.path, os.O_WRONLY | os.O_NOFOLLOW)
         except OSError:
             return
         self._fd = fd

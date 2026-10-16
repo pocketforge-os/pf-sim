@@ -5,6 +5,7 @@ import stat
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -242,6 +243,56 @@ class PrivateEventFifoTests(unittest.TestCase):
                     writer.write(event_fifo.pack_event(1, 305, 1))
             finally:
                 writer.close()
+
+    def test_create_refuses_a_symlinked_fifo_path(self):
+        """A planted or stale symlink at runs/<instance>/input.fifo must not
+        be accepted: the run-private invariant means the holder only ever
+        writes inside the instance run directory (pf-sim#12 review note)."""
+        from pf_sim import event_fifo
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PF_SIM_HOME": tmp}):
+            home = Path(tmp)
+            instance = "fifo-symlink"
+            run = home / "runs" / instance
+            run.mkdir(parents=True)
+            outside = home / "outside.fifo"
+            os.mkfifo(outside)
+            (run / "input.fifo").symlink_to(outside)
+            with self.assertRaisesRegex(RuntimeError, "reason=input_fifo_path_not_a_fifo"):
+                event_fifo.create(instance)
+            self.assertTrue((run / "input.fifo").is_symlink(),
+                            "refusal must leave the planted entry untouched")
+
+    def test_writer_does_not_follow_a_replaced_symlink(self):
+        """The write-side open must not follow a symlink swapped in after
+        validation; frames must never escape the run directory."""
+        from pf_sim import event_fifo
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside.fifo"
+            os.mkfifo(outside)
+            path = root / "input.fifo"
+            os.mkfifo(path)
+            escaped = []
+
+            def outside_reader():
+                fd = os.open(outside, os.O_RDONLY)
+                try:
+                    escaped.append(os.read(fd, 64))
+                finally:
+                    os.close(fd)
+
+            thread = threading.Thread(target=outside_reader, daemon=True)
+            thread.start()
+            time.sleep(0.05)
+            path.unlink()
+            path.symlink_to(outside)
+            writer = event_fifo.FifoWriter(path, open_timeout=0.2)
+            try:
+                with self.assertRaisesRegex(RuntimeError, "reason=input_fifo_not_open"):
+                    writer.write(event_fifo.pack_event(1, 305, 1))
+            finally:
+                writer.close()
+            self.assertEqual(escaped, [], "frames escaped through a replaced symlink")
 
     def test_holder_serves_frames_over_run_private_fifo(self):
         from pf_sim import evdev_read
